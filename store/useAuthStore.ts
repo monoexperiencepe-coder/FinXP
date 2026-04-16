@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -38,6 +39,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      await AsyncStorage.setItem('finxp_last_login', Date.now().toString());
     } finally {
       set({ loading: false });
     }

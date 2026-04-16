@@ -1,4 +1,5 @@
 import 'react-native-gesture-handler';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Manrope_400Regular,
   Manrope_500Medium,
@@ -21,6 +22,7 @@ import 'react-native-reanimated';
 import '../global.css';
 
 import { darkTheme, lightTheme } from '@/constants/theme';
+import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
@@ -71,7 +73,19 @@ export default function RootLayout() {
   }, [error]);
 
   useEffect(() => {
-    void useAuthStore.getState().initialize();
+    const initAuth = async () => {
+      await useAuthStore.getState().initialize();
+
+      const lastLogin = await AsyncStorage.getItem('finxp_last_login');
+      if (lastLogin) {
+        const daysSinceLogin = (Date.now() - parseInt(lastLogin, 10)) / (1000 * 60 * 60 * 24);
+        if (daysSinceLogin > 15) {
+          await supabase.auth.signOut();
+          await AsyncStorage.removeItem('finxp_last_login');
+        }
+      }
+    };
+    void initAuth();
   }, []);
 
   useEffect(() => {
