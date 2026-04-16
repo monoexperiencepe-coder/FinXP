@@ -1,22 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, type Href } from 'expo-router';
-import React, { useRef, useState } from 'react';
-import {
-  Dimensions,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import React, { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
 import * as db from '@/lib/database';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
-
-const { width } = Dimensions.get('window');
 
 const CATEGORIAS = [
   { key: 'alimentacion', label: 'Alimentación', emoji: '🍔' },
@@ -37,7 +27,6 @@ export default function OnboardingScreen() {
   const { user } = useAuthStore();
   const { loadFromSupabase } = useFinanceStore();
   const [step, setStep] = useState(0);
-  const scrollRef = useRef<ScrollView>(null);
 
   const [nombre, setNombre] = useState('');
   const [moneda, setMoneda] = useState('PEN');
@@ -47,11 +36,6 @@ export default function OnboardingScreen() {
   const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
 
   const totalSteps = 4;
-
-  const goToStep = (nextStep: number) => {
-    setStep(nextStep);
-    scrollRef.current?.scrollTo({ x: nextStep * width, animated: true });
-  };
 
   const toggleMetodo = (metodo: string) => {
     setMetodosSeleccionados((prev) =>
@@ -89,25 +73,21 @@ export default function OnboardingScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: T.bg }]}>
+      {/* Progress dots */}
       <View style={styles.dots}>
         {Array.from({ length: totalSteps }).map((_, i) => (
           <View key={i} style={[styles.dot, { backgroundColor: i === step ? T.primary : T.textMuted }]} />
         ))}
       </View>
 
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        scrollEnabled={false}
-        showsHorizontalScrollIndicator={false}
-        style={{ flex: 1 }}>
-        <View style={[styles.slide, { width }]}>
+      {/* PANTALLA 1 - Bienvenida */}
+      {step === 0 && (
+        <ScrollView contentContainerStyle={styles.slide} showsVerticalScrollIndicator={false}>
           <Text style={styles.bigEmoji}>💎</Text>
           <Text style={[styles.title, { color: T.textPrimary }]}>Bienvenido a FinXP</Text>
           <Text style={[styles.subtitle, { color: T.textSecondary }]}>
-            La app que convierte tus finanzas personales en un juego. Registra gastos, sube de nivel y gana recompensas por
-            tener buenas finanzas.
+            La app que convierte tus finanzas personales en un juego. Registra gastos, sube de nivel y gana recompensas por tener
+            buenas finanzas.
           </Text>
           <View style={[styles.featureCard, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
             {[
@@ -122,12 +102,15 @@ export default function OnboardingScreen() {
               </View>
             ))}
           </View>
-          <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary }]} onPress={() => goToStep(1)}>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary }]} onPress={() => setStep(1)}>
             <Text style={styles.btnText}>Empezar →</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
+      )}
 
-        <View style={[styles.slide, { width }]}>
+      {/* PANTALLA 2 - Cómo funciona */}
+      {step === 1 && (
+        <ScrollView contentContainerStyle={styles.slide} showsVerticalScrollIndicator={false}>
           <Text style={styles.bigEmoji}>🚀</Text>
           <Text style={[styles.title, { color: T.textPrimary }]}>¿Cómo funciona?</Text>
           <View style={{ gap: 16, width: '100%' }}>
@@ -147,18 +130,19 @@ export default function OnboardingScreen() {
             ))}
           </View>
           <View style={styles.navRow}>
-            <TouchableOpacity onPress={() => goToStep(0)}>
+            <TouchableOpacity onPress={() => setStep(0)}>
               <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]}
-              onPress={() => goToStep(2)}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]} onPress={() => setStep(2)}>
               <Text style={styles.btnText}>Continuar →</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
+      )}
 
-        <View style={[styles.slide, { width }]}>
+      {/* PANTALLA 3 - Tu perfil */}
+      {step === 2 && (
+        <ScrollView contentContainerStyle={styles.slide} showsVerticalScrollIndicator={false}>
           <Text style={styles.bigEmoji}>👤</Text>
           <Text style={[styles.title, { color: T.textPrimary }]}>Tu perfil</Text>
           <View style={{ gap: 14, width: '100%' }}>
@@ -227,53 +211,50 @@ export default function OnboardingScreen() {
             </View>
           </View>
           <View style={styles.navRow}>
-            <TouchableOpacity onPress={() => goToStep(1)}>
+            <TouchableOpacity onPress={() => setStep(1)}>
               <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]}
-              onPress={() => goToStep(3)}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]} onPress={() => setStep(3)}>
               <Text style={styles.btnText}>Continuar →</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
+      )}
 
-        <View style={[styles.slide, { width }]}>
+      {/* PANTALLA 4 - Presupuestos */}
+      {step === 3 && (
+        <ScrollView contentContainerStyle={[styles.slide, { paddingBottom: 40 }]} showsVerticalScrollIndicator={false}>
           <Text style={styles.bigEmoji}>🎯</Text>
           <Text style={[styles.title, { color: T.textPrimary }]}>Tus presupuestos</Text>
           <Text style={[styles.subtitle, { color: T.textSecondary }]}>
             ¿Cuánto quieres gastar por categoría este mes? (puedes saltarte esto)
           </Text>
-          <ScrollView style={{ width: '100%' }} showsVerticalScrollIndicator={false}>
-            <View style={{ gap: 10 }}>
-              {CATEGORIAS.map((cat) => (
-                <View key={cat.key} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
-                  <Text style={{ fontSize: 22 }}>{cat.emoji}</Text>
-                  <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{cat.label}</Text>
-                  <TextInput
-                    style={[styles.budgetInput, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
-                    placeholder="0"
-                    placeholderTextColor={T.textMuted}
-                    value={presupuestos[cat.key] || ''}
-                    onChangeText={(val) => setPresupuestos((prev) => ({ ...prev, [cat.key]: val }))}
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-              ))}
-            </View>
-          </ScrollView>
-          <View style={styles.navRow}>
-            <TouchableOpacity onPress={() => goToStep(2)}>
+          <View style={{ gap: 10, width: '100%' }}>
+            {CATEGORIAS.map((cat) => (
+              <View key={cat.key} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
+                <Text style={{ fontSize: 22 }}>{cat.emoji}</Text>
+                <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{cat.label}</Text>
+                <TextInput
+                  style={[styles.budgetInput, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
+                  placeholder="0"
+                  placeholderTextColor={T.textMuted}
+                  value={presupuestos[cat.key] || ''}
+                  onChangeText={(val) => setPresupuestos((prev) => ({ ...prev, [cat.key]: val }))}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            ))}
+          </View>
+          <View style={[styles.navRow, { marginTop: 20 }]}>
+            <TouchableOpacity onPress={() => setStep(2)}>
               <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]}
-              onPress={handleFinish}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]} onPress={handleFinish}>
               <Text style={styles.btnText}>¡Empezar! 🚀</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      )}
     </View>
   );
 }
