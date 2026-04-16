@@ -1,0 +1,795 @@
+import { useMemo, useState } from 'react';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import type { BadgeVariant } from '@/components/ui/Badge';
+import { GradientView } from '@/components/ui/GradientView';
+import {
+  chartProjectionFill,
+  onPrimaryGradient,
+  savingsGradient,
+} from '@/constants/theme';
+import { Font } from '@/constants/typography';
+import { useTheme } from '@/hooks/useTheme';
+import { formatMoney } from '@/lib/currency';
+import type { MonedaCode } from '@/types';
+import {
+  buildExpenseTrendBars,
+  categoryBarColor,
+  categorySpendInRange,
+  computeResumenInsights,
+  essentialSplitInRange,
+  fixedVsVariableInRange,
+  paymentMethodSplitInRange,
+  pctChangeVsPrevious,
+  periodBounds,
+  type PeriodFilter,
+  sumExpensesInRange,
+  sumIncomesInRange,
+  topComerciosInRange,
+  trendSubtext,
+  trendSubtextDetailed,
+} from '@/lib/resumenMetrics';
+import { useFinanceStore } from '@/store/useFinanceStore';
+
+const FILTERS: { key: PeriodFilter; label: string }[] = [
+  { key: 'hoy', label: 'Hoy' },
+  { key: 'semana', label: 'Semana' },
+  { key: 'mes', label: 'Mes' },
+];
+
+const cardShadow = {
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 1,
+  shadowRadius: 24,
+  elevation: 12,
+} as const;
+
+const purpleShadow = {
+  shadowOffset: { width: 0, height: 12 },
+  shadowOpacity: 1,
+  shadowRadius: 32,
+  elevation: 16,
+} as const;
+
+function IaBadge() {
+  return (
+    <View
+      style={{
+        borderRadius: 4,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        backgroundColor: onPrimaryGradient.iconGlass,
+      }}>
+      <Text style={{ fontFamily: Font.manrope600, color: onPrimaryGradient.text, fontSize: 9 }}>IA</Text>
+    </View>
+  );
+}
+
+function TrendChartWeb({
+  data,
+}: {
+  data: { label: string; real: number; proj: number }[];
+}) {
+  const { T } = useTheme();
+  if (Platform.OS !== 'web') {
+    return (
+      <View
+        style={{
+          height: 200,
+          borderRadius: 12,
+          backgroundColor: T.card,
+          justifyContent: 'center',
+          shadowColor: T.shadowCard,
+          ...cardShadow,
+        }}>
+        <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, textAlign: 'center', paddingHorizontal: 16 }}>
+          Gráfico disponible en la versión web
+        </Text>
+      </View>
+    );
+  }
+  const { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } = require('recharts') as typeof import('recharts');
+  return (
+    <View
+      style={{
+        width: '100%',
+        height: 200,
+        backgroundColor: T.card,
+        borderRadius: 16,
+        overflow: 'hidden',
+        shadowColor: T.shadowCard,
+        ...cardShadow,
+      }}>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 4 }} barCategoryGap="12%">
+          <XAxis
+            dataKey="label"
+            tick={{ fill: T.textMuted, fontSize: 10 }}
+            axisLine={false}
+            tickLine={false}
+            interval="preserveStartEnd"
+          />
+          <YAxis hide domain={[0, 'auto']} />
+          <Bar dataKey="real" name="Gastos" fill={T.primary} radius={[4, 4, 0, 0]} maxBarSize={28} />
+          <Bar dataKey="proj" name="Proyección" fill={chartProjectionFill} radius={[4, 4, 0, 0]} maxBarSize={28} />
+        </BarChart>
+      </ResponsiveContainer>
+    </View>
+  );
+}
+
+function PaymentDonutWeb({
+  pieRows,
+  centerPct,
+  centerLabel,
+  total,
+  displayMoneda,
+}: {
+  pieRows: { name: string; value: number; color: string; pct: number; total: number }[];
+  centerPct: number;
+  centerLabel: string;
+  total: number;
+  displayMoneda: MonedaCode;
+}) {
+  const { T } = useTheme();
+  if (Platform.OS !== 'web') {
+    return (
+      <View style={{ height: 200, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontFamily: Font.manrope400, color: T.textMuted }}>Donut en web</Text>
+      </View>
+    );
+  }
+  const { PieChart, Pie, Cell } = require('recharts') as typeof import('recharts');
+  return (
+    <View
+      style={{
+        width: 200,
+        height: 200,
+        alignSelf: 'center',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: T.card,
+        borderRadius: 16,
+        shadowColor: T.shadowCard,
+        ...cardShadow,
+      }}>
+      <PieChart width={200} height={200}>
+        <Pie
+          data={pieRows}
+          dataKey="value"
+          nameKey="name"
+          cx="50%"
+          cy="50%"
+          innerRadius={65}
+          outerRadius={90}
+          paddingAngle={1}>
+          {pieRows.map((entry) => (
+            <Cell key={entry.name} fill={entry.color} stroke="none" />
+          ))}
+        </Pie>
+      </PieChart>
+      <View
+        style={{
+          position: 'absolute',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+        <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 22 }}>{centerPct}%</Text>
+        <Text style={{ fontFamily: Font.manrope400, color: T.secondary, fontSize: 12, marginTop: 2 }}>{centerLabel}</Text>
+        <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 10, marginTop: 4 }}>
+          {formatMoney(total, displayMoneda)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function CompactStatBadge({ text, variant }: { text: string; variant: BadgeVariant }) {
+  const { T } = useTheme();
+  const VARIANT_STYLES: Record<BadgeVariant, { bg: string; border: string; text: string }> = {
+    green: {
+      bg: T.tertiaryBg,
+      border: T.tertiaryBg,
+      text: T.success,
+    },
+    red: {
+      bg: T.primaryBg,
+      border: T.primaryBorder,
+      text: T.error,
+    },
+    gold: {
+      bg: T.tertiaryBg,
+      border: T.glassBorder,
+      text: T.gold,
+    },
+    purple: {
+      bg: T.primaryBg,
+      border: T.primaryBorder,
+      text: T.primary,
+    },
+    cyan: {
+      bg: T.secondaryBg,
+      border: T.secondaryBg,
+      text: T.secondary,
+    },
+    muted: {
+      bg: T.cardElevated,
+      border: T.glassBorder,
+      text: T.textSecondary,
+    },
+  };
+  const v = VARIANT_STYLES[variant];
+  return (
+    <View
+      style={{
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 999,
+        backgroundColor: v.bg,
+        borderWidth: 1,
+        borderColor: v.border,
+        maxWidth: '100%',
+      }}>
+      <Text style={{ fontFamily: Font.manrope600, fontSize: 10, color: v.text }} numberOfLines={2}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+function GridStatTile({
+  label,
+  amount,
+  amountColor,
+  badgeText,
+  badgeVariant,
+  backgroundColor,
+  borderColor,
+  withCardShadow,
+}: {
+  label: string;
+  amount: string;
+  amountColor: string;
+  badgeText: string;
+  badgeVariant: BadgeVariant;
+  backgroundColor: string;
+  borderColor: string;
+  withCardShadow?: boolean;
+}) {
+  const { T } = useTheme();
+  return (
+    <View
+      style={{
+        width: '48%',
+        backgroundColor,
+        borderRadius: 16,
+        padding: 12,
+        borderWidth: 1,
+        borderColor,
+        shadowColor: withCardShadow ? T.shadowCard : 'transparent',
+        ...(withCardShadow ? cardShadow : {}),
+      }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
+        <Text
+          style={{
+            fontFamily: Font.manrope500,
+            color: T.textMuted,
+            fontSize: 10,
+            flex: 1,
+          }}
+          numberOfLines={2}>
+          {label}
+        </Text>
+        <CompactStatBadge text={badgeText} variant={badgeVariant} />
+      </View>
+      <Text style={{ fontFamily: Font.jakarta700, color: amountColor, fontSize: 20, marginTop: 8 }} numberOfLines={1}>
+        {amount}
+      </Text>
+    </View>
+  );
+}
+
+export default function ResumenScreen() {
+  const { T } = useTheme();
+  const expenses = useFinanceStore((s) => s.expenses);
+  const incomes = useFinanceStore((s) => s.incomes);
+  const fixedExpenses = useFinanceStore((s) => s.fixedExpenses);
+  const profile = useFinanceStore((s) => s.profile);
+
+  const [period, setPeriod] = useState<PeriodFilter>('mes');
+  const refDate = useMemo(() => new Date(), []);
+  const display = profile.monedaPrincipal;
+  const rate = profile.tipoDeCambio;
+
+  const bounds = useMemo(() => periodBounds(period, refDate), [period, refDate]);
+  const { start, end, prevStart, prevEnd } = bounds;
+
+  const ingresos = useMemo(
+    () => sumIncomesInRange(incomes, start, end, display, rate),
+    [display, end, incomes, rate, start],
+  );
+  const gastos = useMemo(
+    () => sumExpensesInRange(expenses, start, end, display, rate),
+    [display, end, expenses, rate, start],
+  );
+  const ingresosPrev = useMemo(
+    () => sumIncomesInRange(incomes, prevStart, prevEnd, display, rate),
+    [display, incomes, prevEnd, prevStart, rate],
+  );
+  const gastosPrev = useMemo(
+    () => sumExpensesInRange(expenses, prevStart, prevEnd, display, rate),
+    [display, expenses, prevEnd, prevStart, rate],
+  );
+
+  const pctIngresos = pctChangeVsPrevious(ingresos, ingresosPrev);
+  const pctGastos = pctChangeVsPrevious(gastos, gastosPrev);
+
+  const neto = ingresos - gastos;
+  const netoPrev = ingresosPrev - gastosPrev;
+  const netoBetter = neto >= netoPrev;
+
+  const ahorroPct = ingresos > 0 ? Math.max(0, Math.min(100, ((ingresos - gastos) / ingresos) * 100)) : 0;
+  const metaAhorro = 30;
+  const superaMeta = ahorroPct >= metaAhorro;
+
+  const trendData = useMemo(
+    () => buildExpenseTrendBars(period, refDate, expenses, display, rate),
+    [display, expenses, period, rate, refDate],
+  );
+
+  const paymentSplit = useMemo(
+    () => paymentMethodSplitInRange(expenses, start, end, display, rate, profile.metodosDePago ?? null, T),
+    [T, display, end, expenses, profile.metodosDePago, rate, start],
+  );
+  const paymentPie = useMemo(
+    () =>
+      paymentSplit.map((r) => ({
+        name: r.grupo,
+        value: r.total,
+        color: r.color,
+        pct: r.pct,
+        total: r.total,
+      })),
+    [paymentSplit],
+  );
+  const paymentTotal = paymentSplit.reduce((s, r) => s + r.total, 0);
+  const topMedio = useMemo(() => {
+    const sorted = [...paymentSplit].sort((a, b) => b.pct - a.pct)[0];
+    return sorted ?? null;
+  }, [paymentSplit]);
+  const centerLabel =
+    topMedio && topMedio.grupo.toLowerCase().includes('efect') ? 'EFECTIVO' : topMedio ? 'DIGITAL' : '—';
+
+  const categorias = useMemo(
+    () => categorySpendInRange(expenses, start, end, display, rate),
+    [display, end, expenses, rate, start],
+  );
+  const maxCat = categorias[0]?.total ?? 1;
+
+  const insights = useMemo(
+    () => computeResumenInsights(ingresos, gastos, neto, categorias[0] ?? null),
+    [categorias, gastos, ingresos, neto],
+  );
+
+  const fijosVsVars = useMemo(
+    () => fixedVsVariableInRange(fixedExpenses, expenses, start, end, display, rate, refDate),
+    [display, end, expenses, fixedExpenses, rate, refDate, start],
+  );
+
+  const esencialSplit = useMemo(
+    () => essentialSplitInRange(expenses, start, end, display, rate),
+    [display, end, expenses, rate, start],
+  );
+
+  const topComercios = useMemo(
+    () => topComerciosInRange(expenses, start, end, display, rate, 3),
+    [display, end, expenses, rate, start],
+  );
+
+  const fmtPct = (p: number | null) => {
+    if (p === null) return '—';
+    const sign = p >= 0 ? '+' : '';
+    return `${sign}${Math.round(p)}%`;
+  };
+
+  const badgeIngresos = fmtPct(pctIngresos);
+  const badgeGastos = fmtPct(pctGastos);
+  const gastosSubieron = pctGastos !== null && pctGastos > 0;
+
+  const ingresosBadgeVariant: BadgeVariant =
+    badgeIngresos === '—' ? 'muted' : pctIngresos !== null && pctIngresos >= 0 ? 'green' : 'red';
+  const gastosBadgeVariant: BadgeVariant =
+    badgeGastos === '—' ? 'muted' : gastosSubieron ? 'red' : 'green';
+  const netoBadgeVariant: BadgeVariant = netoBetter ? 'green' : 'red';
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
+      <View style={{ flex: 1, maxWidth: 390, width: '100%', alignSelf: 'center' }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 100 }}>
+          <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 26 }}>Resumen General</Text>
+          <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 14, marginTop: 6 }}>
+            Análisis detallado de tus finanzas
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+            {FILTERS.map((f) => {
+              const active = period === f.key;
+              return (
+                <Pressable key={f.key} onPress={() => setPeriod(f.key)}>
+                  {active ? (
+                    <GradientView
+                      colors={T.primaryGrad}
+                      style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 10,
+                        borderRadius: 999,
+                      }}>
+                      <Text style={{ fontFamily: Font.jakarta600, color: onPrimaryGradient.text, fontSize: 14 }}>
+                        {f.label}
+                      </Text>
+                    </GradientView>
+                  ) : (
+                    <View
+                      style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 10,
+                        borderRadius: 999,
+                        backgroundColor: T.card,
+                      }}>
+                      <Text style={{ fontFamily: Font.jakarta600, color: T.textMuted, fontSize: 14 }}>{f.label}</Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View
+            style={{
+              marginTop: 20,
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              rowGap: 10,
+            }}>
+            <GridStatTile
+              label="TOTAL INGRESOS"
+              amount={formatMoney(ingresos, display)}
+              amountColor={T.success}
+              badgeText={badgeIngresos === '—' ? '—' : `${badgeIngresos} vs ant.`}
+              badgeVariant={ingresosBadgeVariant}
+              backgroundColor={T.secondaryBg}
+              borderColor={T.secondaryBg}
+            />
+            <GridStatTile
+              label="TOTAL GASTOS"
+              amount={formatMoney(gastos, display)}
+              amountColor={T.error}
+              badgeText={badgeGastos === '—' ? '—' : `${badgeGastos} vs ant.`}
+              badgeVariant={gastosBadgeVariant}
+              backgroundColor={T.primaryBg}
+              borderColor={T.primaryBorder}
+            />
+            <GridStatTile
+              label="FLUJO NETO"
+              amount={formatMoney(neto, display)}
+              amountColor={neto >= 0 ? T.success : T.error}
+              badgeText={netoBetter ? '↑ vs ant.' : '↓ vs ant.'}
+              badgeVariant={netoBadgeVariant}
+              backgroundColor={T.card}
+              borderColor={T.glassBorder}
+              withCardShadow
+            />
+            <View
+              style={{
+                width: '48%',
+                borderRadius: 16,
+                overflow: 'hidden',
+                shadowColor: T.shadowPrimary,
+                ...purpleShadow,
+              }}>
+              <GradientView colors={savingsGradient} style={{ padding: 12, borderRadius: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
+                  <Text
+                    style={{
+                      fontFamily: Font.manrope500,
+                      color: onPrimaryGradient.textMuted,
+                      fontSize: 10,
+                      flex: 1,
+                    }}
+                    numberOfLines={2}>
+                    AHORRO ESTIMADO
+                  </Text>
+                  <CompactStatBadge text={superaMeta ? 'Meta OK' : 'En camino'} variant={superaMeta ? 'green' : 'gold'} />
+                </View>
+                <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 20, marginTop: 8 }}>
+                  {ahorroPct.toFixed(0)}%
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4 }}>
+                  <Text style={{ fontFamily: Font.manrope400, color: onPrimaryGradient.textMuted, fontSize: 11 }}>
+                    Meta: {metaAhorro}%
+                  </Text>
+                  {superaMeta ? (
+                    <Text style={{ color: onPrimaryGradient.text, fontSize: 12 }}>↑</Text>
+                  ) : (
+                    <Text style={{ color: onPrimaryGradient.textMuted, fontSize: 12 }}>→</Text>
+                  )}
+                </View>
+              </GradientView>
+            </View>
+          </View>
+
+          <View style={{ marginTop: 20 }}>
+            <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 15, marginBottom: 10 }}>
+              Gastos Fijos vs Variables
+            </Text>
+            <View style={{ gap: 10 }}>
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 13 }}>Fijos</Text>
+                  <Text style={{ fontFamily: Font.jakarta600, color: T.warning, fontSize: 13 }}>
+                    {formatMoney(fijosVsVars.fijos, display)} · {fijosVsVars.pctFijos}%
+                  </Text>
+                </View>
+                <View style={{ height: 8, borderRadius: 4, backgroundColor: T.cardElevated, overflow: 'hidden' }}>
+                  <View
+                    style={{
+                      width: `${fijosVsVars.total > 0 ? (fijosVsVars.fijos / fijosVsVars.total) * 100 : 0}%`,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: T.warning,
+                    }}
+                  />
+                </View>
+              </View>
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 13 }}>Variables</Text>
+                  <Text style={{ fontFamily: Font.jakarta600, color: T.primary, fontSize: 13 }}>
+                    {formatMoney(fijosVsVars.variables, display)} · {fijosVsVars.pctVariables}%
+                  </Text>
+                </View>
+                <View style={{ height: 8, borderRadius: 4, backgroundColor: T.cardElevated, overflow: 'hidden' }}>
+                  <View
+                    style={{
+                      width: `${fijosVsVars.total > 0 ? (fijosVsVars.variables / fijosVsVars.total) * 100 : 0}%`,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: T.primary,
+                    }}
+                  />
+                </View>
+              </View>
+              <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, marginTop: 4 }}>
+                Total combinado: {formatMoney(fijosVsVars.total, display)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ marginTop: 22 }}>
+            <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 15, marginBottom: 10 }}>
+              Esencial vs No Esencial
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: T.primaryBg,
+                  borderWidth: 1,
+                  borderColor: T.primaryBorder,
+                  borderRadius: 16,
+                  paddingVertical: 14,
+                  paddingHorizontal: 12,
+                  alignItems: 'center',
+                }}>
+                <Text style={{ fontSize: 22 }}>✅</Text>
+                <Text style={{ fontFamily: Font.jakarta700, color: T.primary, fontSize: 18, marginTop: 6 }}>
+                  {formatMoney(esencialSplit.esencial, display)}
+                </Text>
+                <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 12, marginTop: 4 }}>
+                  {esencialSplit.pctEsencial}%
+                </Text>
+              </View>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: T.card,
+                  borderWidth: 1,
+                  borderColor: T.error,
+                  borderRadius: 16,
+                  paddingVertical: 14,
+                  paddingHorizontal: 12,
+                  alignItems: 'center',
+                }}>
+                <Text style={{ fontSize: 22 }}>🛍️</Text>
+                <Text style={{ fontFamily: Font.jakarta700, color: T.error, fontSize: 18, marginTop: 6 }}>
+                  {formatMoney(esencialSplit.noEsencial, display)}
+                </Text>
+                <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 12, marginTop: 4 }}>
+                  {esencialSplit.pctNoEsencial}%
+                </Text>
+              </View>
+            </View>
+            <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+              del gasto total este período
+            </Text>
+          </View>
+
+          <View style={{ marginTop: 22 }}>
+            <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 15, marginBottom: 10 }}>
+              Dónde más gastas
+            </Text>
+            {topComercios.length === 0 ? (
+              <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 14 }}>
+                Sin gastos en este período.
+              </Text>
+            ) : (
+              <View style={{ gap: 12 }}>
+                {topComercios.map((row, idx) => (
+                  <View
+                    key={row.comercio}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                      <View
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          backgroundColor: T.cardElevated,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                        <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 14 }}>
+                          {idx + 1}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 14 }} numberOfLines={2}>
+                          {row.comercio}
+                        </Text>
+                        <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11, marginTop: 2 }}>
+                          {row.pct}% del total
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 15 }}>
+                      {formatMoney(row.total, display)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={{ marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 16 }}>Tendencia de Gastos</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: T.primary }} />
+                  <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12 }}>Gastos</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: chartProjectionFill }} />
+                  <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12 }}>Proyección</Text>
+                </View>
+              </View>
+            </View>
+            <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, marginTop: 4 }}>
+              {trendSubtext(period)}
+            </Text>
+            <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11, marginTop: 2 }}>
+              {trendSubtextDetailed(period)}
+            </Text>
+            <View style={{ marginTop: 12, overflow: 'hidden' }}>
+              <TrendChartWeb data={trendData} />
+            </View>
+          </View>
+
+          <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 16, marginTop: 24 }}>
+            Métodos de Pago
+          </Text>
+          <PaymentDonutWeb
+            pieRows={paymentPie}
+            centerPct={topMedio?.pct ?? 0}
+            centerLabel={centerLabel}
+            total={paymentTotal}
+            displayMoneda={display}
+          />
+          <View style={{ marginTop: 8, gap: 10 }}>
+            {paymentSplit.map((r, idx) => (
+              <View key={`${r.grupo}-${idx}`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: r.color }} />
+                  <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 13 }}>{r.grupo}</Text>
+                </View>
+                <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 13 }}>{r.pct}%</Text>
+              </View>
+            ))}
+            <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, textAlign: 'right' }}>
+              Total {formatMoney(paymentTotal, display)}
+            </Text>
+          </View>
+
+          <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 16, marginTop: 28 }}>
+            Gasto por Categoría
+          </Text>
+          <View style={{ marginTop: 12, gap: 12 }}>
+            {categorias.length === 0 ? (
+              <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 14 }}>
+                Sin gastos en este período.
+              </Text>
+            ) : (
+              categorias.map((cat, idx) => (
+                <View key={cat.categoriaId}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor: T.cardElevated,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                        <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 14 }} numberOfLines={2}>
+                          {cat.nombre}
+                        </Text>
+                        <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, marginTop: 2 }}>
+                          {cat.count} {cat.count === 1 ? 'gasto' : 'gastos'} este período
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 16 }}>
+                      {formatMoney(cat.total, display)}
+                    </Text>
+                  </View>
+                  <View style={{ marginTop: 8, height: 3, borderRadius: 2, backgroundColor: T.cardElevated, overflow: 'hidden' }}>
+                    <View
+                      style={{
+                        width: `${Math.min(100, (cat.total / maxCat) * 100)}%`,
+                        height: 3,
+                        borderRadius: 2,
+                        backgroundColor: categoryBarColor(idx, T),
+                      }}
+                    />
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+
+          <GradientView
+            colors={T.primaryGrad}
+            style={{
+              marginTop: 28,
+              borderRadius: 16,
+              padding: 16,
+              shadowColor: T.shadowPrimary,
+              ...purpleShadow,
+            }}>
+            <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 16 }}>✨ Insights FinXP</Text>
+            <View style={{ marginTop: 14, gap: 14 }}>
+              {insights.map((text, i) => (
+                <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                  <IaBadge />
+                  <Text style={{ flex: 1, fontFamily: Font.manrope400, color: onPrimaryGradient.text, fontSize: 14, lineHeight: 20 }}>
+                    {text}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </GradientView>
+        </ScrollView>
+      </View>
+    </SafeAreaView>
+  );
+}
