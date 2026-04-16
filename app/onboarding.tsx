@@ -1,0 +1,315 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter, type Href } from 'expo-router';
+import React, { useRef, useState } from 'react';
+import {
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+import { darkTheme as T } from '@/constants/theme';
+import * as db from '@/lib/database';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useFinanceStore } from '@/store/useFinanceStore';
+
+const { width } = Dimensions.get('window');
+
+const CATEGORIAS = [
+  { key: 'alimentacion', label: 'Alimentación', emoji: '🍔' },
+  { key: 'transporte', label: 'Transporte', emoji: '🚌' },
+  { key: 'entretenimiento', label: 'Entretenimiento', emoji: '🎮' },
+  { key: 'salud', label: 'Salud', emoji: '💊' },
+  { key: 'ropa-calzado', label: 'Ropa', emoji: '👕' },
+  { key: 'educacion', label: 'Educación', emoji: '📚' },
+  { key: 'hogar', label: 'Hogar', emoji: '🏠' },
+  { key: 'servicios', label: 'Servicios', emoji: '💡' },
+  { key: 'otros', label: 'Otros', emoji: '📦' },
+];
+
+const METODOS = ['Efectivo', 'Tarjeta Débito', 'Tarjeta Crédito', 'Yape', 'Plin', 'Transferencia'];
+
+export default function OnboardingScreen() {
+  const router = useRouter();
+  const { user } = useAuthStore();
+  const { loadFromSupabase } = useFinanceStore();
+  const [step, setStep] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+
+  const [nombre, setNombre] = useState('');
+  const [moneda, setMoneda] = useState('PEN');
+  const [tipoCambio, setTipoCambio] = useState('3.75');
+  const [metodosSeleccionados, setMetodosSeleccionados] = useState<string[]>(['Efectivo', 'Yape']);
+
+  const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
+
+  const totalSteps = 4;
+
+  const goToStep = (nextStep: number) => {
+    setStep(nextStep);
+    scrollRef.current?.scrollTo({ x: nextStep * width, animated: true });
+  };
+
+  const toggleMetodo = (metodo: string) => {
+    setMetodosSeleccionados((prev) =>
+      prev.includes(metodo) ? prev.filter((m) => m !== metodo) : [...prev, metodo],
+    );
+  };
+
+  const handleFinish = async () => {
+    if (!user) return;
+    try {
+      const mesActual = new Date().toISOString().slice(0, 7);
+
+      await db.updateProfile(user.id, {
+        nombre_usuario: nombre || 'Usuario',
+        moneda_principal: moneda,
+        tipo_de_cambio: parseFloat(tipoCambio) || 3.75,
+        metodos_de_pago: metodosSeleccionados,
+      });
+
+      const promises = Object.entries(presupuestos)
+        .filter(([_, val]) => val && parseFloat(val) > 0)
+        .map(([categoria, limite]) => db.upsertBudget(user.id, categoria, parseFloat(limite), mesActual));
+      await Promise.all(promises);
+
+      await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+
+      await loadFromSupabase();
+
+      router.replace('/(tabs)' as Href);
+    } catch (e) {
+      console.error('Error saving onboarding:', e);
+      router.replace('/(tabs)' as Href);
+    }
+  };
+
+  return (
+    <View style={[styles.container, { backgroundColor: T.bg }]}>
+      <View style={styles.dots}>
+        {Array.from({ length: totalSteps }).map((_, i) => (
+          <View key={i} style={[styles.dot, { backgroundColor: i === step ? T.primary : T.textMuted }]} />
+        ))}
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        scrollEnabled={false}
+        showsHorizontalScrollIndicator={false}
+        style={{ flex: 1 }}>
+        <View style={[styles.slide, { width }]}>
+          <Text style={styles.bigEmoji}>💎</Text>
+          <Text style={[styles.title, { color: T.textPrimary }]}>Bienvenido a FinXP</Text>
+          <Text style={[styles.subtitle, { color: T.textSecondary }]}>
+            La app que convierte tus finanzas personales en un juego. Registra gastos, sube de nivel y gana recompensas por
+            tener buenas finanzas.
+          </Text>
+          <View style={[styles.featureCard, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
+            {[
+              { emoji: '⚡', text: 'Registra gastos en segundos' },
+              { emoji: '🎮', text: 'Gana XP y sube de nivel' },
+              { emoji: '📊', text: 'Visualiza tus finanzas al instante' },
+              { emoji: '🎯', text: 'Cumple misiones y logros' },
+            ].map((f) => (
+              <View key={f.text} style={styles.featureRow}>
+                <Text style={{ fontSize: 20 }}>{f.emoji}</Text>
+                <Text style={[styles.featureText, { color: T.textSecondary }]}>{f.text}</Text>
+              </View>
+            ))}
+          </View>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary }]} onPress={() => goToStep(1)}>
+            <Text style={styles.btnText}>Empezar →</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.slide, { width }]}>
+          <Text style={styles.bigEmoji}>🚀</Text>
+          <Text style={[styles.title, { color: T.textPrimary }]}>¿Cómo funciona?</Text>
+          <View style={{ gap: 16, width: '100%' }}>
+            {[
+              { emoji: '⚡', title: 'Gana XP', desc: 'Cada gasto que registras te da 10 XP. Cada ingreso 20 XP.' },
+              { emoji: '📈', title: 'Sube de nivel', desc: 'Acumula XP para subir de nivel y desbloquear logros.' },
+              { emoji: '🔥', title: 'Mantén tu racha', desc: 'Registra algo cada día para mantener tu racha activa.' },
+              { emoji: '🎯', title: 'Completa misiones', desc: 'Misiones diarias y semanales con recompensas de XP.' },
+            ].map((item) => (
+              <View key={item.title} style={[styles.howCard, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
+                <Text style={{ fontSize: 28 }}>{item.emoji}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.howTitle, { color: T.textPrimary }]}>{item.title}</Text>
+                  <Text style={[styles.howDesc, { color: T.textSecondary }]}>{item.desc}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+          <View style={styles.navRow}>
+            <TouchableOpacity onPress={() => goToStep(0)}>
+              <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]}
+              onPress={() => goToStep(2)}>
+              <Text style={styles.btnText}>Continuar →</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={[styles.slide, { width }]}>
+          <Text style={styles.bigEmoji}>👤</Text>
+          <Text style={[styles.title, { color: T.textPrimary }]}>Tu perfil</Text>
+          <View style={{ gap: 14, width: '100%' }}>
+            <View style={{ gap: 6 }}>
+              <Text style={[styles.label, { color: T.textSecondary }]}>¿Cómo te llamamos?</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
+                placeholder="Tu nombre"
+                placeholderTextColor={T.textMuted}
+                value={nombre}
+                onChangeText={setNombre}
+              />
+            </View>
+            <View style={{ gap: 6 }}>
+              <Text style={[styles.label, { color: T.textSecondary }]}>Moneda principal</Text>
+              <View style={styles.pillRow}>
+                {['PEN', 'USD', 'EUR'].map((m) => (
+                  <TouchableOpacity
+                    key={m}
+                    style={[
+                      styles.pill,
+                      {
+                        backgroundColor: moneda === m ? T.primary : T.surface,
+                        borderColor: moneda === m ? T.primary : T.glassBorder,
+                      },
+                    ]}
+                    onPress={() => setMoneda(m)}>
+                    <Text style={[styles.pillText, { color: moneda === m ? '#fff' : T.textSecondary }]}>{m}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            {moneda !== 'USD' && (
+              <View style={{ gap: 6 }}>
+                <Text style={[styles.label, { color: T.textSecondary }]}>Tipo de cambio (1 USD = ?)</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
+                  placeholder="3.75"
+                  placeholderTextColor={T.textMuted}
+                  value={tipoCambio}
+                  onChangeText={setTipoCambio}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            )}
+            <View style={{ gap: 8 }}>
+              <Text style={[styles.label, { color: T.textSecondary }]}>Métodos de pago que usas</Text>
+              <View style={styles.pillRow}>
+                {METODOS.map((m) => (
+                  <TouchableOpacity
+                    key={m}
+                    style={[
+                      styles.pill,
+                      {
+                        backgroundColor: metodosSeleccionados.includes(m) ? T.primary : T.surface,
+                        borderColor: metodosSeleccionados.includes(m) ? T.primary : T.glassBorder,
+                      },
+                    ]}
+                    onPress={() => toggleMetodo(m)}>
+                    <Text style={[styles.pillText, { color: metodosSeleccionados.includes(m) ? '#fff' : T.textSecondary }]}>
+                      {m}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+          <View style={styles.navRow}>
+            <TouchableOpacity onPress={() => goToStep(1)}>
+              <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]}
+              onPress={() => goToStep(3)}>
+              <Text style={styles.btnText}>Continuar →</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={[styles.slide, { width }]}>
+          <Text style={styles.bigEmoji}>🎯</Text>
+          <Text style={[styles.title, { color: T.textPrimary }]}>Tus presupuestos</Text>
+          <Text style={[styles.subtitle, { color: T.textSecondary }]}>
+            ¿Cuánto quieres gastar por categoría este mes? (puedes saltarte esto)
+          </Text>
+          <ScrollView style={{ width: '100%' }} showsVerticalScrollIndicator={false}>
+            <View style={{ gap: 10 }}>
+              {CATEGORIAS.map((cat) => (
+                <View key={cat.key} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
+                  <Text style={{ fontSize: 22 }}>{cat.emoji}</Text>
+                  <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{cat.label}</Text>
+                  <TextInput
+                    style={[styles.budgetInput, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
+                    placeholder="0"
+                    placeholderTextColor={T.textMuted}
+                    value={presupuestos[cat.key] || ''}
+                    onChangeText={(val) => setPresupuestos((prev) => ({ ...prev, [cat.key]: val }))}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+          <View style={styles.navRow}>
+            <TouchableOpacity onPress={() => goToStep(2)}>
+              <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]}
+              onPress={handleFinish}>
+              <Text style={styles.btnText}>¡Empezar! 🚀</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, paddingTop: 60 },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 20 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  slide: { paddingHorizontal: 24, alignItems: 'center', gap: 20 },
+  bigEmoji: { fontSize: 64 },
+  title: { fontSize: 26, fontWeight: '800', textAlign: 'center' },
+  subtitle: { fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  featureCard: { width: '100%', borderRadius: 16, padding: 20, gap: 14, borderWidth: 1 },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  featureText: { fontSize: 14 },
+  howCard: { flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 14, padding: 16, borderWidth: 1 },
+  howTitle: { fontSize: 15, fontWeight: '700' },
+  howDesc: { fontSize: 13, marginTop: 2 },
+  btn: { height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, width: '100%' },
+  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  navRow: { flexDirection: 'row', alignItems: 'center', width: '100%', marginTop: 8 },
+  backText: { fontSize: 15, fontWeight: '600' },
+  label: { fontSize: 13, fontWeight: '600', marginLeft: 4 },
+  input: { height: 52, borderRadius: 12, paddingHorizontal: 16, fontSize: 15, borderWidth: 1 },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  pillText: { fontSize: 13, fontWeight: '600' },
+  budgetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 12, padding: 12, borderWidth: 1 },
+  budgetLabel: { flex: 1, fontSize: 14, fontWeight: '600' },
+  budgetInput: {
+    width: 80,
+    height: 40,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    fontSize: 14,
+    borderWidth: 1,
+    textAlign: 'right',
+  },
+});

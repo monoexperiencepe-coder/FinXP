@@ -92,11 +92,27 @@ export default function RootLayout() {
     if (!initialized || !loaded) return;
     const root = segments[0] as string | undefined;
     const inAuthGroup = root === '(auth)';
-    if (!session && !inAuthGroup) {
-      router.replace('/(auth)/login' as Href);
-    } else if (session && inAuthGroup) {
-      router.replace('/(tabs)' as Href);
-    }
+    const inOnboarding = root === 'onboarding';
+
+    const checkOnboarding = async () => {
+      if (!session && !inAuthGroup) {
+        router.replace('/(auth)/login' as Href);
+      } else if (session && inAuthGroup) {
+        const done = await AsyncStorage.getItem('finxp_onboarding_done');
+        if (done) {
+          router.replace('/(tabs)' as Href);
+        } else {
+          router.replace('/onboarding' as Href);
+        }
+      } else if (session && !inOnboarding) {
+        const done = await AsyncStorage.getItem('finxp_onboarding_done');
+        if (!done) {
+          router.replace('/onboarding' as Href);
+        }
+      }
+    };
+
+    void checkOnboarding();
   }, [session, initialized, segments, loaded, router]);
 
   useEffect(() => {
@@ -123,6 +139,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="(auth)" />
+          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         </Stack>
       </ThemeProvider>
     </GestureHandlerRootView>

@@ -354,6 +354,19 @@ export async function getBudgets(userId: string, mes: string) {
   return data ?? [];
 }
 
+export async function upsertBudget(userId: string, categoria: string, limite: number, mes: string) {
+  const { error } = await supabase.from('budgets').upsert(
+    {
+      user_id: userId,
+      categoria,
+      limite,
+      mes,
+    },
+    { onConflict: 'user_id,categoria,mes' },
+  );
+  if (error) throw error;
+}
+
 export async function getMissions(userId: string) {
   const { data, error } = await supabase.from('missions').select('*').eq('user_id', userId).order('created_at', { ascending: true });
   if (error) throw error;
