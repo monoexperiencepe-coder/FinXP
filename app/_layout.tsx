@@ -13,7 +13,7 @@ import {
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack, useRouter, useSegments, type Href } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useMemo } from 'react';
 import { StatusBar } from 'expo-status-bar';
@@ -96,18 +96,55 @@ export default function RootLayout() {
 
     const checkOnboarding = async () => {
       if (!session && !inAuthGroup) {
-        router.replace('/(auth)/login' as Href);
-      } else if (session && inAuthGroup) {
-        const done = await AsyncStorage.getItem('finxp_onboarding_done');
-        if (done) {
-          router.replace('/(tabs)' as Href);
-        } else {
-          router.replace('/onboarding' as Href);
+        router.replace('/(auth)/login' as any);
+        return;
+      }
+
+      if (session && inAuthGroup) {
+        // Verificar onboarding en AsyncStorage primero (rápido)
+        const localDone = await AsyncStorage.getItem('finxp_onboarding_done');
+        if (localDone) {
+          router.replace('/(tabs)' as any);
+          return;
         }
-      } else if (session && !inOnboarding) {
-        const done = await AsyncStorage.getItem('finxp_onboarding_done');
-        if (!done) {
-          router.replace('/onboarding' as Href);
+        // Verificar en Supabase (fuente de verdad)
+        try {
+          const { data } = await supabase
+            .from('user_profiles')
+            .select('onboarding_done')
+            .eq('id', session.user.id)
+            .single();
+
+          if (data?.onboarding_done) {
+            await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+            router.replace('/(tabs)' as any);
+          } else {
+            router.replace('/onboarding' as any);
+          }
+        } catch {
+          router.replace('/onboarding' as any);
+        }
+        return;
+      }
+
+      if (session && !inOnboarding && !inAuthGroup) {
+        const localDone = await AsyncStorage.getItem('finxp_onboarding_done');
+        if (!localDone) {
+          try {
+            const { data } = await supabase
+              .from('user_profiles')
+              .select('onboarding_done')
+              .eq('id', session.user.id)
+              .single();
+
+            if (data?.onboarding_done) {
+              await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+            } else {
+              router.replace('/onboarding' as any);
+            }
+          } catch {
+            // Si falla la consulta, no redirigir
+          }
         }
       }
     };

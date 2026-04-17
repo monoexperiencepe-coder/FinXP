@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -44,30 +44,37 @@ export default function OnboardingScreen() {
   };
 
   const handleFinish = async () => {
-    if (!user) return;
+    if (!user) {
+      console.error('No user found');
+      router.replace('/(tabs)' as any);
+      return;
+    }
     try {
-      const mesActual = new Date().toISOString().slice(0, 7);
+      console.log('Saving profile for user:', user.id);
 
       await db.updateProfile(user.id, {
         nombre_usuario: nombre || 'Usuario',
         moneda_principal: moneda,
         tipo_de_cambio: parseFloat(tipoCambio) || 3.75,
         metodos_de_pago: metodosSeleccionados,
+        onboarding_done: true,
       });
+      console.log('Profile saved');
 
-      const promises = Object.entries(presupuestos)
+      const mesActual = new Date().toISOString().slice(0, 7);
+      const budgetPromises = Object.entries(presupuestos)
         .filter(([_, val]) => val && parseFloat(val) > 0)
         .map(([categoria, limite]) => db.upsertBudget(user.id, categoria, parseFloat(limite), mesActual));
-      await Promise.all(promises);
+      await Promise.all(budgetPromises);
+      console.log('Budgets saved');
 
       await AsyncStorage.setItem('finxp_onboarding_done', 'true');
-
       await loadFromSupabase();
-
-      router.replace('/(tabs)' as Href);
+      router.replace('/(tabs)' as any);
     } catch (e) {
-      console.error('Error saving onboarding:', e);
-      router.replace('/(tabs)' as Href);
+      console.error('Error in handleFinish:', e);
+      await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+      router.replace('/(tabs)' as any);
     }
   };
 

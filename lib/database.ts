@@ -28,6 +28,7 @@ export type UserProfileRow = {
   misiones_completadas: number;
   theme: string;
   metodos_de_pago: string[] | null;
+  onboarding_done?: boolean;
 };
 
 export type UserProfileRowPatch = Partial<{
@@ -43,6 +44,7 @@ export type UserProfileRowPatch = Partial<{
   misiones_completadas: number;
   theme: string;
   metodos_de_pago: string[] | null;
+  onboarding_done: boolean;
 }>;
 
 const INCOME_TIPOS: IncomeTipo[] = [
@@ -259,6 +261,14 @@ export async function getProfile(userId: string): Promise<UserProfileRow | null>
 
 export async function updateProfile(userId: string, updates: UserProfileRowPatch) {
   const { error } = await supabase.from('user_profiles').update(updates).eq('id', userId);
+  if (error) throw error;
+}
+
+export async function markOnboardingDone(userId: string) {
+  const { error } = await supabase
+    .from('user_profiles')
+    .update({ onboarding_done: true })
+    .eq('id', userId);
   if (error) throw error;
 }
 
