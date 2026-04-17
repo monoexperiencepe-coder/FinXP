@@ -8,6 +8,7 @@ import { createId } from '@/lib/ids';
 import * as db from '@/lib/database';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
+import type { MonedaCode } from '@/types';
 
 const METODOS = ['Efectivo', 'Tarjeta Débito', 'Tarjeta Crédito', 'Yape', 'Plin', 'Transferencia'];
 
@@ -26,7 +27,7 @@ const CATEGORIAS_DEFAULT = [
 export default function OnboardingScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { loadFromSupabase, profile } = useFinanceStore();
+  const { loadFromSupabase, loadCategories, profile } = useFinanceStore();
   const [step, setStep] = useState(0);
 
   const [nombre, setNombre] = useState('');
@@ -69,13 +70,10 @@ export default function OnboardingScreen() {
 
   const handleFinish = async () => {
     if (!user) {
-      console.error('No user found');
       router.replace('/(tabs)' as any);
       return;
     }
     try {
-      console.log('Saving profile for user:', user.id);
-
       await db.updateProfile(user.id, {
         nombre_usuario: nombre || 'Usuario',
         moneda_principal: moneda,
@@ -83,36 +81,46 @@ export default function OnboardingScreen() {
         metodos_de_pago: metodosSeleccionados,
         onboarding_done: true,
       });
+
       useFinanceStore.setState((state) => ({
         profile: {
           ...state.profile,
-          metodosDePago: metodosSeleccionados.map((nombre) => ({
+          nombreUsuario: nombre || 'Usuario',
+          monedaPrincipal: moneda as MonedaCode,
+          tipoDeCambio: parseFloat(tipoCambio) || 3.75,
+          metodosDePago: metodosSeleccionados.map((n) => ({
             id: createId(),
-            nombre,
+            nombre: n,
             activo: true,
           })),
         },
       }));
-      console.log('Profile saved');
 
-      await db.initDefaultCategories(user.id);
-      const existingCats = await db.getCategories(user.id);
-      if (existingCats.length === 0) {
-        const { supabase } = await import('@/lib/supabase');
-        await supabase.from('user_categories').insert(
-          categoriasList.map((c, i) => ({ user_id: user.id, nombre: c.nombre, emoji: c.emoji, orden: i })),
-        );
-      }
+      const { supabase } = await import('@/lib/supabase');
+
+      await supabase.from('user_categories').delete().eq('user_id', user.id);
+
+      await supabase.from('user_categories').insert(
+        categoriasList.map((c, i) => ({
+          user_id: user.id,
+          nombre: c.nombre,
+          emoji: c.emoji,
+          orden: i,
+        })),
+      );
 
       const mesActual = new Date().toISOString().slice(0, 7);
       const budgetPromises = Object.entries(presupuestos)
         .filter(([_, val]) => val && parseFloat(val) > 0)
         .map(([categoria, limite]) => db.upsertBudget(user.id, categoria, parseFloat(limite), mesActual));
       await Promise.all(budgetPromises);
-      console.log('Budgets saved');
 
       await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+
+      useFinanceStore.setState({ categories: [] });
       await loadFromSupabase();
+      await loadCategories();
+
       router.replace('/(tabs)' as any);
     } catch (e) {
       console.error('Error in handleFinish:', e);
