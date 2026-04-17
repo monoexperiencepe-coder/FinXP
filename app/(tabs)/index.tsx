@@ -113,10 +113,13 @@ export default function HomeScreen() {
   }, [session]);
 
   const initial = useMemo(() => (profile.nombreUsuario?.trim()?.charAt(0) || 'U').toUpperCase(), [profile.nombreUsuario]);
-  const monthSpent = useMemo(
-    () => expenses.filter((item) => item.mes === new Date().toISOString().slice(0, 7)).reduce((sum, item) => sum + item.importe, 0),
-    [expenses],
+  const mesActual = new Date().toISOString().slice(0, 7);
+  const gastadoMes = useMemo(
+    () => expenses.filter((e) => e.mes === mesActual).reduce((sum, e) => sum + e.importe, 0),
+    [expenses, mesActual],
   );
+  const limiteMes = useMemo(() => budgets.reduce((sum, b) => sum + b.limiteMonthly, 0), [budgets]);
+  const pctUsado = limiteMes > 0 ? Math.min((gastadoMes / limiteMes) * 100, 100) : 0;
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const todaySpent = useMemo(
     () => expenses.filter((item) => item.fecha.slice(0, 10) === todayKey).reduce((sum, item) => sum + item.importe, 0),
@@ -126,15 +129,7 @@ export default function HomeScreen() {
     () => incomes.filter((item) => item.fecha.slice(0, 10) === todayKey).reduce((sum, item) => sum + item.importe, 0),
     [incomes, todayKey],
   );
-  const monthlyBudget = useMemo(() => budgets.reduce((sum, item) => sum + item.limiteMonthly, 0), [budgets]);
-  const rawBudgetUsedPct = useMemo(() => {
-    if (monthlyBudget <= 0) return 0;
-    return (monthSpent / monthlyBudget) * 100;
-  }, [monthSpent, monthlyBudget]);
-  const usedPctDisplay = Math.round(rawBudgetUsedPct);
-  const arcStrokePct = Math.min(100, rawBudgetUsedPct);
-  const donutArcColor =
-    rawBudgetUsedPct > 100 ? T.error : rawBudgetUsedPct > 80 ? T.warning : T.primary;
+  const arcStrokePct = pctUsado;
   const weekCategory = useMemo(() => {
     const now = new Date();
     const weekAgo = new Date(now);
@@ -170,10 +165,10 @@ export default function HomeScreen() {
 
   const chartData = useMemo(
     () => [
-      { name: 'Usado', value: arcStrokePct, color: donutArcColor },
-      { name: 'Restante', value: Math.max(0, 100 - arcStrokePct), color: T.cardElevated },
+      { name: 'Usado', value: arcStrokePct, color: T.primary },
+      { name: 'Restante', value: Math.max(0, 100 - arcStrokePct), color: T.surface },
     ],
-    [arcStrokePct, donutArcColor, T.cardElevated],
+    [arcStrokePct, T.primary, T.surface],
   );
 
   return (
@@ -265,26 +260,27 @@ export default function HomeScreen() {
               {Platform.OS === 'web' ? (
                 <WebDonut chartData={chartData} />
               ) : (
-                <NativeDonut usedPct={arcStrokePct} strokeColor={donutArcColor} trackColor={T.cardElevated} />
+                <NativeDonut usedPct={arcStrokePct} strokeColor={T.primary} trackColor={T.surface} />
               )}
               <View
                 pointerEvents="none"
-                style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 36 }}>{usedPctDisplay}%</Text>
-                <Text style={{ fontFamily: Font.manrope400, color: T.textSecondary, fontSize: 12, marginTop: 2 }}>
-                  del presupuesto mensual
+                style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }}>
+                <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 26, textAlign: 'center' }}>
+                  {formatMoney(gastadoMes, profile.monedaPrincipal)}
+                </Text>
+                <Text style={{ fontFamily: Font.manrope400, color: T.textSecondary, fontSize: 12, marginTop: 4 }}>
+                  gastado este mes
                 </Text>
                 <Text
                   style={{
                     fontFamily: Font.manrope400,
                     color: T.textSecondary,
-                    fontSize: 12,
-                    marginTop: 4,
+                    fontSize: 11,
+                    marginTop: 6,
                     textAlign: 'center',
-                    paddingHorizontal: 8,
                   }}>
-                  {formatMoney(monthSpent, profile.monedaPrincipal)} gastado de{' '}
-                  {formatMoney(monthlyBudget, profile.monedaPrincipal)} límite
+                  {formatMoney(gastadoMes, profile.monedaPrincipal)} gastado de {formatMoney(limiteMes, profile.monedaPrincipal)}{' '}
+                  límite
                 </Text>
               </View>
             </View>

@@ -66,13 +66,17 @@ export default function MisionesScreen() {
 
   const [metaInfoOpen, setMetaInfoOpen] = useState(false);
 
-  const monthBudget = useMemo(() => budgets.reduce((sum, item) => sum + item.limiteMonthly, 0), [budgets]);
-  const monthSpent = useMemo(
-    () => expenses.filter((item) => item.mes === new Date().toISOString().slice(0, 7)).reduce((sum, item) => sum + item.importe, 0),
-    [expenses],
+  const mesActual = new Date().toISOString().slice(0, 7);
+  const gastadoMes = useMemo(
+    () => expenses.filter((e) => e.mes === mesActual).reduce((sum, e) => sum + e.importe, 0),
+    [expenses, mesActual],
   );
-  const budgetUsedPct = monthBudget > 0 ? Math.min(100, Math.round((monthSpent / monthBudget) * 100)) : 0;
-  const budgetRemaining = Math.max(monthBudget - monthSpent, 0);
+  const limiteMes = useMemo(() => budgets.reduce((sum, b) => sum + b.limiteMonthly, 0), [budgets]);
+  const pctUsado = limiteMes > 0 ? Math.min((gastadoMes / limiteMes) * 100, 100) : 0;
+  const monthBudget = limiteMes;
+  const monthSpent = gastadoMes;
+  const budgetBarColor =
+    pctUsado < 70 ? T.success : pctUsado <= 90 ? T.warning : T.error;
 
   const expensiveDayLabel = useMemo(() => {
     const daySpend: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
@@ -161,34 +165,34 @@ export default function MisionesScreen() {
                   fontSize: 11,
                   letterSpacing: 1.2,
                 }}>
-                META DEL MES
+                PRESUPUESTO DEL MES
               </Text>
               <Pressable onPress={() => setMetaInfoOpen(true)} hitSlop={8} style={{ padding: 2 }}>
                 <Text style={{ fontSize: 14, color: onPrimaryGradient.textMuted }}>ℹ️</Text>
               </Pressable>
             </View>
-            <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 30, marginTop: 6 }}>
-              {formatMoney(monthBudget, profile.monedaPrincipal)}
+            <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 36, marginTop: 8 }}>
+              {Math.round(pctUsado)}%
             </Text>
             <View
               style={{
-                height: 6,
-                borderRadius: 3,
+                height: 8,
+                borderRadius: 4,
                 backgroundColor: onPrimaryGradient.iconGlass,
-                marginTop: 10,
+                marginTop: 12,
                 overflow: 'hidden',
               }}>
               <View
                 style={{
-                  width: `${budgetUsedPct}%`,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: onPrimaryGradient.text,
+                  width: `${Math.min(100, pctUsado)}%`,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: budgetBarColor,
                 }}
               />
             </View>
-            <Text style={{ fontFamily: Font.manrope400, color: onPrimaryGradient.textMuted, fontSize: 12, marginTop: 8 }}>
-              Faltan {formatMoney(budgetRemaining, profile.monedaPrincipal)} para alcanzar tu meta
+            <Text style={{ fontFamily: Font.manrope400, color: onPrimaryGradient.textMuted, fontSize: 12, marginTop: 10 }}>
+              {formatMoney(gastadoMes, profile.monedaPrincipal)} gastado de {formatMoney(limiteMes, profile.monedaPrincipal)} límite
             </Text>
           </GradientView>
 
