@@ -38,8 +38,23 @@ export default function OnboardingScreen() {
   });
 
   const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
+  const [categoriasList, setCategoriasList] = useState(CATEGORIAS_DEFAULT);
+  const [newCatName, setNewCatName] = useState('');
+  const [showCatInput, setShowCatInput] = useState(false);
 
   const totalSteps = 4;
+
+  const handleAddCat = () => {
+    if (!newCatName.trim()) return;
+    const newCat = { id: newCatName.toLowerCase(), nombre: newCatName.trim(), emoji: '📦' };
+    setCategoriasList((prev) => [...prev, newCat]);
+    setNewCatName('');
+    setShowCatInput(false);
+  };
+
+  const handleRemoveCat = (id: string) => {
+    setCategoriasList((prev) => prev.filter((c) => c.id !== id));
+  };
 
   const toggleMetodo = (metodo: string) => {
     setMetodosSeleccionados((prev) =>
@@ -79,6 +94,15 @@ export default function OnboardingScreen() {
         },
       }));
       console.log('Profile saved');
+
+      await db.initDefaultCategories(user.id);
+      const existingCats = await db.getCategories(user.id);
+      if (existingCats.length === 0) {
+        const { supabase } = await import('@/lib/supabase');
+        await supabase.from('user_categories').insert(
+          categoriasList.map((c, i) => ({ user_id: user.id, nombre: c.nombre, emoji: c.emoji, orden: i })),
+        );
+      }
 
       const mesActual = new Date().toISOString().slice(0, 7);
       const budgetPromises = Object.entries(presupuestos)
@@ -256,10 +280,10 @@ export default function OnboardingScreen() {
             ¿Cuánto quieres gastar por categoría este mes? (puedes saltarte esto)
           </Text>
           <View style={{ gap: 10, width: '100%' }}>
-            {CATEGORIAS_DEFAULT.map((cat) => (
+            {categoriasList.map((cat) => (
               <View key={cat.id} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
                 <Text style={{ fontSize: 22 }}>{cat.emoji}</Text>
-                <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{(cat as { label?: string }).label || cat.nombre}</Text>
+                <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{cat.nombre}</Text>
                 <TextInput
                   style={[styles.budgetInput, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
                   placeholder="0"
@@ -268,9 +292,60 @@ export default function OnboardingScreen() {
                   onChangeText={(val) => setPresupuestos((prev) => ({ ...prev, [cat.nombre]: val }))}
                   keyboardType="decimal-pad"
                 />
+                <TouchableOpacity onPress={() => handleRemoveCat(cat.id)} style={{ paddingLeft: 8 }}>
+                  <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
+                </TouchableOpacity>
               </View>
             ))}
           </View>
+          {showCatInput && (
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, width: '100%' }}>
+              <TextInput
+                style={[
+                  {
+                    flex: 1,
+                    height: 44,
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    fontSize: 14,
+                    backgroundColor: T.surface,
+                    color: T.textPrimary,
+                    borderWidth: 1,
+                    borderColor: T.glassBorder,
+                  },
+                ]}
+                placeholder="Nueva categoría"
+                placeholderTextColor={T.textMuted}
+                value={newCatName}
+                onChangeText={setNewCatName}
+              />
+              <TouchableOpacity
+                style={[
+                  { height: 44, paddingHorizontal: 16, borderRadius: 10, backgroundColor: T.primary, justifyContent: 'center' },
+                ]}
+                onPress={handleAddCat}>
+                <Text style={{ color: '#fff', fontWeight: '700' }}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          <TouchableOpacity
+            style={[
+              {
+                height: 44,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: T.primary,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 8,
+                width: '100%',
+              },
+            ]}
+            onPress={() => setShowCatInput(!showCatInput)}>
+            <Text style={{ color: T.primary, fontWeight: '600', fontSize: 14 }}>
+              {showCatInput ? 'Cancelar' : '+ Agregar categoría'}
+            </Text>
+          </TouchableOpacity>
           <View style={[styles.navRow, { marginTop: 20 }]}>
             <TouchableOpacity onPress={() => setStep(2)}>
               <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
