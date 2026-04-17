@@ -26,10 +26,10 @@ export default function OnboardingScreen() {
   const totalSteps = 4;
 
   useEffect(() => {
-    if (user) {
-      void loadCategories();
+    if (user?.id) {
+      loadCategories();
     }
-  }, [user, loadCategories]);
+  }, [user?.id]);
 
   const toggleMetodo = (metodo: string) => {
     setMetodosSeleccionados((prev) =>

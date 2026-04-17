@@ -888,13 +888,17 @@ export const useFinanceStore = create<FinanceState>()(
         const userId = useAuthStore.getState().user?.id;
         if (!userId) return;
         const db = await import('@/lib/database');
-        const cats = await db.getCategories(userId);
-        if (cats.length === 0) {
-          await db.initDefaultCategories(userId);
-          const fresh = await db.getCategories(userId);
-          set({ categories: fresh });
-        } else {
-          set({ categories: cats });
+        try {
+          const cats = await db.getCategories(userId);
+          if (cats.length === 0) {
+            await db.initDefaultCategories(userId);
+            const fresh = await db.getCategories(userId);
+            set({ categories: fresh });
+          } else {
+            set({ categories: cats });
+          }
+        } catch (e) {
+          console.error('Error loading categories:', e);
         }
       },
 
