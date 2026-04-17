@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EXPENSE_CATEGORIES } from '@/constants/expenseCategories';
 import { Font } from '@/constants/typography';
 import { avatarRingBorder, logoutRowStyle, modalOverlayScrim, onPrimaryGradient } from '@/constants/theme';
 import { GradientView } from '@/components/ui/GradientView';
@@ -584,48 +583,6 @@ export default function PerfilScreen() {
             icon="📊"
             expanded={openSection === 'presupuesto'}
             onToggle={() => toggleSection('presupuesto')}>
-            {EXPENSE_CATEGORIES.map((cat) => {
-              const limite = budgetByCat[cat.id] ?? 0;
-              return (
-                <View
-                  key={cat.id}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingVertical: 10,
-                    marginBottom: 8,
-                    gap: 8,
-                  }}>
-                  <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
-                  <Text style={{ flex: 1, color: T.textPrimary, fontSize: 14 }} numberOfLines={1}>
-                    {cat.name}
-                  </Text>
-                  <TextInput
-                    value={limite === 0 ? '' : String(limite)}
-                    onChangeText={(t) => {
-                      const n = Number(t.replace(',', '.'));
-                      if (t === '' || Number.isNaN(n)) setBudgetCategoryLimit(cat.id, 0);
-                      else setBudgetCategoryLimit(cat.id, n);
-                    }}
-                    keyboardType="number-pad"
-                    placeholder="0"
-                    placeholderTextColor="#67537c"
-                    style={{
-                      width: 72,
-                      textAlign: 'right',
-                      color: T.textPrimary,
-                      fontSize: 14,
-                      borderWidth: 1,
-                      borderColor: T.glassBorder,
-                      borderRadius: 8,
-                      paddingVertical: 6,
-                      paddingHorizontal: 8,
-                    }}
-                  />
-                </View>
-              );
-            })}
-
             <View style={{ gap: 10, marginTop: 12 }}>
               <Text style={[{ color: T.textSecondary, fontSize: 13, fontWeight: '600' }]}>
                 Categorías de gastos
