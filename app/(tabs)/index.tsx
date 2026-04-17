@@ -106,10 +106,11 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (session) {
-      void loadFromSupabase();
-      void loadCategories();
+      loadFromSupabase().then(() => {
+        loadCategories();
+      });
     }
-  }, [session, loadFromSupabase, loadCategories]);
+  }, [session]);
 
   const initial = useMemo(() => (profile.nombreUsuario?.trim()?.charAt(0) || 'U').toUpperCase(), [profile.nombreUsuario]);
   const monthSpent = useMemo(

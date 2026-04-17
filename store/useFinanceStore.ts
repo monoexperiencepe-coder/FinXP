@@ -448,6 +448,7 @@ type FinanceState = {
 
   syncing: boolean;
   lastSync: string | null;
+  loadingCategories: boolean;
   categories: { id: string; nombre: string; emoji: string; orden: number }[];
   loadFromSupabase: () => Promise<void>;
   loadCategories: () => Promise<void>;
@@ -507,6 +508,7 @@ const seedState = (): Omit<
   | 'toggleTheme'
   | 'syncing'
   | 'lastSync'
+  | 'loadingCategories'
   | 'categories'
   | 'loadFromSupabase'
   | 'loadCategories'
@@ -549,6 +551,7 @@ export const useFinanceStore = create<FinanceState>()(
       theme: 'dark',
       syncing: false,
       lastSync: null,
+      loadingCategories: false,
       categories: [],
 
       toggleTheme: () => {
@@ -912,21 +915,27 @@ export const useFinanceStore = create<FinanceState>()(
       },
 
       loadCategories: async () => {
+        if (get().loadingCategories) return;
+        if (get().categories.length > 0) return;
+
         const { useAuthStore } = await import('./useAuthStore');
         const userId = useAuthStore.getState().user?.id;
         if (!userId) return;
+
+        set({ loadingCategories: true });
         const db = await import('@/lib/database');
         try {
           const cats = await db.getCategories(userId);
           if (cats.length === 0) {
             await db.initDefaultCategories(userId);
             const fresh = await db.getCategories(userId);
-            set({ categories: fresh });
+            set({ categories: fresh, loadingCategories: false });
           } else {
-            set({ categories: cats });
+            set({ categories: cats, loadingCategories: false });
           }
         } catch (e) {
           console.error('Error loading categories:', e);
+          set({ loadingCategories: false });
         }
       },
 

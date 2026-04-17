@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
@@ -11,10 +11,22 @@ import { useFinanceStore } from '@/store/useFinanceStore';
 
 const METODOS = ['Efectivo', 'Tarjeta Débito', 'Tarjeta Crédito', 'Yape', 'Plin', 'Transferencia'];
 
+const CATEGORIAS_DEFAULT = [
+  { id: 'alimentacion', nombre: 'Alimentación', emoji: '🍔' },
+  { id: 'transporte', nombre: 'Transporte', emoji: '🚌' },
+  { id: 'entretenimiento', nombre: 'Entretenimiento', emoji: '🎮' },
+  { id: 'salud', nombre: 'Salud', emoji: '💊' },
+  { id: 'ropa', nombre: 'Ropa', emoji: '👕' },
+  { id: 'educacion', nombre: 'Educación', emoji: '📚' },
+  { id: 'hogar', nombre: 'Hogar', emoji: '🏠' },
+  { id: 'servicios', nombre: 'Servicios', emoji: '💡' },
+  { id: 'otros', nombre: 'Otros', emoji: '📦' },
+];
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { categories, loadFromSupabase, loadCategories, profile } = useFinanceStore();
+  const { loadFromSupabase, profile } = useFinanceStore();
   const [step, setStep] = useState(0);
 
   const [nombre, setNombre] = useState('');
@@ -28,12 +40,6 @@ export default function OnboardingScreen() {
   const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
 
   const totalSteps = 4;
-
-  useEffect(() => {
-    if (user?.id) {
-      loadCategories();
-    }
-  }, [user?.id]);
 
   const toggleMetodo = (metodo: string) => {
     setMetodosSeleccionados((prev) =>
@@ -250,7 +256,7 @@ export default function OnboardingScreen() {
             ¿Cuánto quieres gastar por categoría este mes? (puedes saltarte esto)
           </Text>
           <View style={{ gap: 10, width: '100%' }}>
-            {categories.map((cat) => (
+            {CATEGORIAS_DEFAULT.map((cat) => (
               <View key={cat.id} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
                 <Text style={{ fontSize: 22 }}>{cat.emoji}</Text>
                 <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{(cat as { label?: string }).label || cat.nombre}</Text>

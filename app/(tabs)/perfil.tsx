@@ -11,12 +11,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { Font } from '@/constants/typography';
 import { avatarRingBorder, logoutRowStyle, onPrimaryGradient } from '@/constants/theme';
 import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
 import { formatMoney } from '@/lib/currency';
+import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_METODOS_DE_PAGO } from '@/types';
 
@@ -163,6 +165,7 @@ function AccordionSection({
 
 export default function PerfilScreen() {
   const { T, isDark } = useTheme();
+  const { signOut } = useAuthStore();
   const profile = useFinanceStore((s) => s.profile);
   const missions = useFinanceStore((s) => s.missions);
   const fixedExpenses = useFinanceStore((s) => s.fixedExpenses);
@@ -226,12 +229,15 @@ export default function PerfilScreen() {
     else setTipoCambioDraft(String(profile.tipoDeCambio));
   }, [profile.tipoDeCambio, setTipoDeCambio, tipoCambioDraft]);
 
-  const onLogout = useCallback(() => {
-    Alert.alert('¿Cerrar sesión?', 'Vas a salir de tu cuenta en este dispositivo.', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Cerrar sesión', style: 'destructive', onPress: () => {} },
-    ]);
-  }, []);
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      await AsyncStorage.removeItem('finxp_onboarding_done');
+      await AsyncStorage.removeItem('finxp_last_login');
+    } catch (e) {
+      console.error('Error signing out:', e);
+    }
+  };
 
   const handleAddCategory = useCallback(async () => {
     if (!newCatName.trim()) return;
@@ -772,7 +778,7 @@ export default function PerfilScreen() {
           </Pressable>
 
           <Pressable
-            onPress={onLogout}
+            onPress={() => void handleSignOut()}
             style={{
               marginTop: 14,
               flexDirection: 'row',
