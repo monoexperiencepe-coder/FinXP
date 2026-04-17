@@ -10,6 +10,7 @@ import {
   Pressable,
   Text,
   TextInput,
+  TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -30,7 +31,6 @@ import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
-import { formatSpanishLongDate } from '@/lib/formatSpanishDate';
 import { ESTADOS_DE_ANIMO, MOOD_EMOJI, moodLabel } from '@/lib/mood';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { EstadoDeAnimo, MonedaCode } from '@/types';
@@ -47,6 +47,15 @@ function toDateKeyLocal(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function fechaKeyToDate(key: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key.trim());
+  if (!m) return new Date();
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d);
 }
 
 type Props = {
@@ -175,7 +184,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
 
   const prevOpen = useRef(false);
 
-  const [date, setDate] = useState(() => new Date());
+  const [fecha, setFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [showIosPicker, setShowIosPicker] = useState(false);
   const [amount, setAmount] = useState('');
   const [amountFocused, setAmountFocused] = useState(false);
@@ -189,7 +198,6 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [medio, setMedio] = useState<string>(() => mediosNombres[0] ?? 'Efectivo');
   const [banco, setBanco] = useState<string>(BANCOS[0]);
   const [bancoMenu, setBancoMenu] = useState(false);
-  const [comercio, setComercio] = useState('');
   const [nota, setNota] = useState('');
 
   const [fieldError, setFieldError] = useState<FieldError>(null);
@@ -237,10 +245,9 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     setMood('NEUTRAL');
     setMedio(mediosNombres[0] ?? 'Efectivo');
     setBanco(BANCOS[0]);
-    setComercio('');
     setNota('');
     setAmount('');
-    setDate(new Date());
+    setFecha(new Date().toISOString().split('T')[0]);
     setFieldError(null);
     requestAnimationFrame(() => openSheet());
   }, [open, openSheet, profile.monedaPrincipal, categories, mediosNombres]);
@@ -281,17 +288,22 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
 
   const openDatePicker = () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Fecha', 'En web usá el campo de texto (YYYY-MM-DD) o probá en dispositivo.', [
-        { text: 'OK' },
-      ]);
+      const input = document.createElement('input');
+      input.type = 'date';
+      input.value = fecha;
+      input.onchange = (e: Event) => {
+        const v = (e.target as HTMLInputElement).value;
+        if (v) setFecha(v);
+      };
+      input.click();
       return;
     }
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
-        value: date,
+        value: fechaKeyToDate(fecha),
         mode: 'date',
         onChange: (_ev, d) => {
-          if (d) setDate(d);
+          if (d) setFecha(toDateKeyLocal(d));
         },
       });
     } else {
@@ -350,14 +362,14 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
-    const fechaIso = date.toISOString();
+    const fd = fechaKeyToDate(fecha);
+    const fechaIso = new Date(fd.getFullYear(), fd.getMonth(), fd.getDate(), 12, 0, 0, 0).toISOString();
     try {
       await addExpenseToSupabase({
         categoria,
         importe: value,
         estadoDeAnimo: mood,
         descripcion: nota.trim(),
-        comercio: comercio.trim(),
         fecha: fechaIso,
         medioDePago: medio,
         banco,
@@ -376,8 +388,6 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const onVoicePress = () => {
     Alert.alert('Próximamente', 'Registro por voz estará disponible muy pronto 🎙️');
   };
-
-  const dateLabel = useMemo(() => formatSpanishLongDate(date), [date]);
 
   const symbol = moneda === 'PEN' ? 'S/' : '$';
 
@@ -445,41 +455,49 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               paddingBottom: 12,
             }}
             style={{ flex: 1 }}>
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>FECHA</Text>
-            <Pressable
-              onPress={openDatePicker}
-              className="rounded-xl border border-border bg-bg px-4 py-3 active:opacity-90">
-              <Text className="text-base text-text">{dateLabel}</Text>
-            </Pressable>
-            {Platform.OS === 'web' ? (
-              <TextInput
-                value={toDateKeyLocal(date)}
-                onChangeText={(t) => {
-                  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.trim());
-                  if (!m) return;
-                  const y = Number(m[1]);
-                  const mo = Number(m[2]);
-                  const d = Number(m[3]);
-                  const next = new Date(y, mo - 1, d);
-                  if (!Number.isNaN(+next)) setDate(next);
+            <View style={{ gap: 6 }}>
+              <Text
+                style={{
+                  fontFamily: Font.manrope600,
+                  color: T.textMuted,
+                  fontSize: 11,
+                  letterSpacing: 2,
+                  marginBottom: 2,
+                }}>
+                FECHA
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  backgroundColor: T.surface,
+                  borderColor: T.glassBorder,
+                  justifyContent: 'center',
                 }}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={T.textMuted}
-                className="mt-2 rounded-xl border border-border bg-bg px-4 py-2 font-mono text-sm text-text"
-              />
-            ) : null}
+                onPress={openDatePicker}>
+                <Text style={{ color: T.textPrimary, fontSize: 15 }}>
+                  {fecha
+                    ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-PE', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })
+                    : 'Seleccionar fecha'}
+                </Text>
+              </TouchableOpacity>
+            </View>
             {Platform.OS === 'ios' && showIosPicker ? (
               <DateTimePicker
-                value={date}
+                value={fechaKeyToDate(fecha)}
                 mode="date"
                 display="spinner"
                 themeVariant={isDark ? 'dark' : 'light'}
                 onChange={(_, d) => {
-                  if (d) setDate(d);
+                  if (d) setFecha(toDateKeyLocal(d));
                 }}
               />
             ) : null}
@@ -644,21 +662,6 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               <Text className="text-base text-text">{banco}</Text>
               <Text className="text-muted">▾</Text>
             </Pressable>
-
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>COMERCIO</Text>
-            <TextInput
-              value={comercio}
-              onChangeText={setComercio}
-              placeholder="Ej: Rappi, Wong, Uber..."
-              placeholderTextColor={T.textMuted}
-              className="rounded-xl border border-border bg-bg px-4 py-3 text-base text-text"
-            />
 
             <View style={{ height: SECTION }} />
 

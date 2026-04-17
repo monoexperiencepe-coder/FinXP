@@ -1,4 +1,3 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -9,7 +8,6 @@ import {
   SectionList,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -238,6 +236,16 @@ export default function GastosScreen() {
     [rangeFromKey, rangeToKey],
   );
 
+  const handleDatePress = useCallback((setter: (val: string) => void, currentVal: string) => {
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'date';
+      input.value = currentVal;
+      input.onchange = (e: Event) => setter((e.target as HTMLInputElement).value);
+      input.click();
+    }
+  }, []);
+
   const applyRangeIosDate = () => {
     const nk = toDateKey(rangeDraftDate);
     if (rangePicker === 'from') setRangeFromKey(nk);
@@ -360,19 +368,6 @@ export default function GastosScreen() {
         <Text style={{ fontFamily: Font.jakarta700, fontSize: 26, color: T.textPrimary, letterSpacing: -0.5 }}>
           Mis Gastos
         </Text>
-        <View
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: T.glassBorder,
-            backgroundColor: T.card,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-          <FontAwesome name="sliders" size={18} color={T.textSecondary} />
-        </View>
       </View>
     ),
     [T],
@@ -517,7 +512,13 @@ export default function GastosScreen() {
               DESDE
             </Text>
             <Pressable
-              onPress={() => openRangePicker('from')}
+              onPress={() => {
+                if (Platform.OS === 'web') {
+                  handleDatePress(setRangeFromKey, rangeFromKey);
+                } else {
+                  openRangePicker('from');
+                }
+              }}
               style={{
                 paddingVertical: 14,
                 paddingHorizontal: 16,
@@ -528,33 +529,19 @@ export default function GastosScreen() {
               }}>
               <Text style={{ fontFamily: Font.jakarta600, fontSize: 15, color: T.textPrimary }}>{rangeFromKey}</Text>
             </Pressable>
-            {Platform.OS === 'web' ? (
-              <TextInput
-                value={rangeFromKey}
-                onChangeText={(t) => {
-                  if (/^\d{4}-\d{2}-\d{2}$/.test(t.trim())) setRangeFromKey(t.trim());
-                }}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={T.textMuted}
-                style={{
-                  marginTop: 8,
-                  padding: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: T.glassBorder,
-                  backgroundColor: T.bg,
-                  color: T.textPrimary,
-                  fontFamily: 'monospace',
-                }}
-              />
-            ) : null}
           </View>
           <View>
             <Text style={{ fontFamily: Font.manrope600, fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
               HASTA
             </Text>
             <Pressable
-              onPress={() => openRangePicker('to')}
+              onPress={() => {
+                if (Platform.OS === 'web') {
+                  handleDatePress(setRangeToKey, rangeToKey);
+                } else {
+                  openRangePicker('to');
+                }
+              }}
               style={{
                 paddingVertical: 14,
                 paddingHorizontal: 16,
@@ -565,26 +552,6 @@ export default function GastosScreen() {
               }}>
               <Text style={{ fontFamily: Font.jakarta600, fontSize: 15, color: T.textPrimary }}>{rangeToKey}</Text>
             </Pressable>
-            {Platform.OS === 'web' ? (
-              <TextInput
-                value={rangeToKey}
-                onChangeText={(t) => {
-                  if (/^\d{4}-\d{2}-\d{2}$/.test(t.trim())) setRangeToKey(t.trim());
-                }}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={T.textMuted}
-                style={{
-                  marginTop: 8,
-                  padding: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: T.glassBorder,
-                  backgroundColor: T.bg,
-                  color: T.textPrimary,
-                  fontFamily: 'monospace',
-                }}
-              />
-            ) : null}
           </View>
         </View>
 
@@ -615,7 +582,7 @@ export default function GastosScreen() {
         </View>
       </View>
     ),
-    [T, headerTitleRow, pills, rangeFromKey, rangeToKey, openRangePicker, totalRange, moneda, rangeFiltered.length],
+    [T, headerTitleRow, pills, rangeFromKey, rangeToKey, openRangePicker, handleDatePress, totalRange, moneda, rangeFiltered.length],
   );
 
   const listHeaderTotal = useMemo(
