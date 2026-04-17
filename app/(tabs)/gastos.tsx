@@ -1,5 +1,5 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { createElement, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -114,6 +114,14 @@ function expenseInDateRange(e: Expense, fromKey: string, toKey: string): boolean
 
 const listContentStyle = { paddingBottom: 100, paddingHorizontal: 16 } as const;
 const sectionListStyle = { flex: 1 } as const;
+
+const filterDateStyles = StyleSheet.create({
+  sectionLabel: {
+    fontFamily: Font.manrope600,
+    fontSize: 11,
+    letterSpacing: 2,
+  },
+});
 
 export default function GastosScreen() {
   const { T, isDark } = useTheme();
@@ -498,36 +506,38 @@ export default function GastosScreen() {
         {pills}
         <View style={{ gap: 12, marginBottom: 16 }}>
           <View>
-            <Text style={{ fontFamily: Font.manrope600, fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
-              DESDE
-            </Text>
+            <Text style={[filterDateStyles.sectionLabel, { color: T.textMuted, marginBottom: 6 }]}>DESDE</Text>
             {Platform.OS === 'web' ? (
               <View
                 style={{
-                  backgroundColor: T.card,
+                  backgroundColor: T.surface,
                   borderColor: T.glassBorder,
                   borderWidth: 1,
-                  borderRadius: 14,
+                  borderRadius: 12,
+                  height: 52,
                   overflow: 'hidden',
+                  justifyContent: 'center',
                 }}>
-                {createElement('input', {
-                  type: 'date',
-                  value: rangeFromKey,
-                  onChange: (e: { target: { value: string } }) => setRangeFromKey(e.target.value),
-                  style: {
-                    width: '100%',
-                    height: 52,
-                    background: 'transparent',
-                    border: 'none',
-                    outline: 'none',
-                    color: T.textPrimary,
-                    fontSize: 15,
-                    paddingLeft: 16,
-                    paddingRight: 16,
-                    cursor: 'pointer',
-                    colorScheme: isDark ? 'dark' : 'light',
-                  },
-                })}
+                <input
+                  type="date"
+                  value={rangeFromKey}
+                  onChange={(e: any) => setRangeFromKey(e.target.value)}
+                  style={
+                    {
+                      width: '100%',
+                      height: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: 'white',
+                      fontSize: 15,
+                      paddingLeft: 16,
+                      paddingRight: 16,
+                      cursor: 'pointer',
+                      colorScheme: 'dark',
+                    } as any
+                  }
+                />
               </View>
             ) : (
               <Pressable
@@ -545,36 +555,38 @@ export default function GastosScreen() {
             )}
           </View>
           <View>
-            <Text style={{ fontFamily: Font.manrope600, fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
-              HASTA
-            </Text>
+            <Text style={[filterDateStyles.sectionLabel, { color: T.textMuted, marginBottom: 6 }]}>HASTA</Text>
             {Platform.OS === 'web' ? (
               <View
                 style={{
-                  backgroundColor: T.card,
+                  backgroundColor: T.surface,
                   borderColor: T.glassBorder,
                   borderWidth: 1,
-                  borderRadius: 14,
+                  borderRadius: 12,
+                  height: 52,
                   overflow: 'hidden',
+                  justifyContent: 'center',
                 }}>
-                {createElement('input', {
-                  type: 'date',
-                  value: rangeToKey,
-                  onChange: (e: { target: { value: string } }) => setRangeToKey(e.target.value),
-                  style: {
-                    width: '100%',
-                    height: 52,
-                    background: 'transparent',
-                    border: 'none',
-                    outline: 'none',
-                    color: T.textPrimary,
-                    fontSize: 15,
-                    paddingLeft: 16,
-                    paddingRight: 16,
-                    cursor: 'pointer',
-                    colorScheme: isDark ? 'dark' : 'light',
-                  },
-                })}
+                <input
+                  type="date"
+                  value={rangeToKey}
+                  onChange={(e: any) => setRangeToKey(e.target.value)}
+                  style={
+                    {
+                      width: '100%',
+                      height: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: 'white',
+                      fontSize: 15,
+                      paddingLeft: 16,
+                      paddingRight: 16,
+                      cursor: 'pointer',
+                      colorScheme: 'dark',
+                    } as any
+                  }
+                />
               </View>
             ) : (
               <Pressable
@@ -620,7 +632,7 @@ export default function GastosScreen() {
         </View>
       </View>
     ),
-    [T, headerTitleRow, pills, rangeFromKey, rangeToKey, openRangePicker, totalRange, moneda, rangeFiltered.length, isDark],
+    [T, headerTitleRow, pills, rangeFromKey, rangeToKey, openRangePicker, totalRange, moneda, rangeFiltered.length],
   );
 
   const listHeaderTotal = useMemo(

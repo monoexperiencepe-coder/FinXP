@@ -1,6 +1,6 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -8,6 +8,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -41,6 +42,14 @@ const SPRING_OPEN = { damping: 26, stiffness: 280 } as const;
 const SPRING_CLOSE = { damping: 28, stiffness: 260 } as const;
 
 const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Diners Club', 'CMR', 'PayPal', 'Otro'] as const;
+
+const styles = StyleSheet.create({
+  sectionLabel: {
+    fontFamily: Font.manrope600,
+    fontSize: 11,
+    letterSpacing: 2,
+  },
+});
 
 function toDateKeyLocal(d: Date): string {
   const y = d.getFullYear();
@@ -444,46 +453,44 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               paddingBottom: 12,
             }}
             style={{ flex: 1 }}>
-            <View style={{ gap: 6 }}>
-              <Text
-                style={{
-                  fontFamily: Font.manrope600,
-                  color: T.textMuted,
-                  fontSize: 11,
-                  letterSpacing: 2,
-                  marginBottom: 2,
-                }}>
-                FECHA
-              </Text>
-              {Platform.OS === 'web' ? (
+            {Platform.OS === 'web' ? (
+              <View style={{ gap: 6 }}>
+                <Text style={[styles.sectionLabel, { color: T.textMuted }]}>FECHA</Text>
                 <View
                   style={{
                     backgroundColor: T.surface,
                     borderColor: T.glassBorder,
                     borderWidth: 1,
                     borderRadius: 12,
+                    height: 52,
                     overflow: 'hidden',
+                    justifyContent: 'center',
                   }}>
-                  {createElement('input', {
-                    type: 'date',
-                    value: fecha,
-                    onChange: (e: { target: { value: string } }) => setFecha(e.target.value),
-                    style: {
-                      width: '100%',
-                      height: 52,
-                      background: 'transparent',
-                      border: 'none',
-                      outline: 'none',
-                      color: T.textPrimary,
-                      fontSize: 15,
-                      paddingLeft: 16,
-                      paddingRight: 16,
-                      cursor: 'pointer',
-                      colorScheme: isDark ? 'dark' : 'light',
-                    },
-                  })}
+                  <input
+                    type="date"
+                    value={fecha}
+                    onChange={(e: any) => setFecha(e.target.value)}
+                    style={
+                      {
+                        width: '100%',
+                        height: '100%',
+                        background: 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        color: 'white',
+                        fontSize: 15,
+                        paddingLeft: 16,
+                        paddingRight: 16,
+                        cursor: 'pointer',
+                        colorScheme: 'dark',
+                      } as any
+                    }
+                  />
                 </View>
-              ) : (
+              </View>
+            ) : (
+              <View style={{ gap: 6 }}>
+                <Text style={[styles.sectionLabel, { color: T.textMuted }]}>FECHA</Text>
                 <TouchableOpacity
                   activeOpacity={0.85}
                   style={{
@@ -496,7 +503,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                     justifyContent: 'center',
                   }}
                   onPress={openDatePicker}>
-                  <Text style={{ color: T.textPrimary, fontSize: 15, paddingLeft: 0 }}>
+                  <Text style={{ color: T.textPrimary, fontSize: 15 }}>
                     {fecha
                       ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-PE', {
                           weekday: 'long',
@@ -507,8 +514,8 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                       : 'Seleccionar fecha'}
                   </Text>
                 </TouchableOpacity>
-              )}
-            </View>
+              </View>
+            )}
             {Platform.OS === 'ios' && showIosPicker ? (
               <DateTimePicker
                 value={fechaKeyToDate(fecha)}
