@@ -1,5 +1,5 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -235,16 +235,6 @@ export default function GastosScreen() {
     },
     [rangeFromKey, rangeToKey],
   );
-
-  const handleDatePress = useCallback((setter: (val: string) => void, currentVal: string) => {
-    if (Platform.OS === 'web') {
-      const input = document.createElement('input');
-      input.type = 'date';
-      input.value = currentVal;
-      input.onchange = (e: Event) => setter((e.target as HTMLInputElement).value);
-      input.click();
-    }
-  }, []);
 
   const applyRangeIosDate = () => {
     const nk = toDateKey(rangeDraftDate);
@@ -511,47 +501,95 @@ export default function GastosScreen() {
             <Text style={{ fontFamily: Font.manrope600, fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
               DESDE
             </Text>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS === 'web') {
-                  handleDatePress(setRangeFromKey, rangeFromKey);
-                } else {
-                  openRangePicker('from');
-                }
-              }}
-              style={{
-                paddingVertical: 14,
-                paddingHorizontal: 16,
-                borderRadius: 14,
-                backgroundColor: T.card,
-                borderWidth: 1,
-                borderColor: T.glassBorder,
-              }}>
-              <Text style={{ fontFamily: Font.jakarta600, fontSize: 15, color: T.textPrimary }}>{rangeFromKey}</Text>
-            </Pressable>
+            {Platform.OS === 'web' ? (
+              <View
+                style={{
+                  backgroundColor: T.card,
+                  borderColor: T.glassBorder,
+                  borderWidth: 1,
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                }}>
+                {createElement('input', {
+                  type: 'date',
+                  value: rangeFromKey,
+                  onChange: (e: { target: { value: string } }) => setRangeFromKey(e.target.value),
+                  style: {
+                    width: '100%',
+                    height: 52,
+                    background: 'transparent',
+                    border: 'none',
+                    outline: 'none',
+                    color: T.textPrimary,
+                    fontSize: 15,
+                    paddingLeft: 16,
+                    paddingRight: 16,
+                    cursor: 'pointer',
+                    colorScheme: isDark ? 'dark' : 'light',
+                  },
+                })}
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => openRangePicker('from')}
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 16,
+                  borderRadius: 14,
+                  backgroundColor: T.card,
+                  borderWidth: 1,
+                  borderColor: T.glassBorder,
+                }}>
+                <Text style={{ fontFamily: Font.jakarta600, fontSize: 15, color: T.textPrimary }}>{rangeFromKey}</Text>
+              </Pressable>
+            )}
           </View>
           <View>
             <Text style={{ fontFamily: Font.manrope600, fontSize: 11, color: T.textMuted, marginBottom: 6 }}>
               HASTA
             </Text>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS === 'web') {
-                  handleDatePress(setRangeToKey, rangeToKey);
-                } else {
-                  openRangePicker('to');
-                }
-              }}
-              style={{
-                paddingVertical: 14,
-                paddingHorizontal: 16,
-                borderRadius: 14,
-                backgroundColor: T.card,
-                borderWidth: 1,
-                borderColor: T.glassBorder,
-              }}>
-              <Text style={{ fontFamily: Font.jakarta600, fontSize: 15, color: T.textPrimary }}>{rangeToKey}</Text>
-            </Pressable>
+            {Platform.OS === 'web' ? (
+              <View
+                style={{
+                  backgroundColor: T.card,
+                  borderColor: T.glassBorder,
+                  borderWidth: 1,
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                }}>
+                {createElement('input', {
+                  type: 'date',
+                  value: rangeToKey,
+                  onChange: (e: { target: { value: string } }) => setRangeToKey(e.target.value),
+                  style: {
+                    width: '100%',
+                    height: 52,
+                    background: 'transparent',
+                    border: 'none',
+                    outline: 'none',
+                    color: T.textPrimary,
+                    fontSize: 15,
+                    paddingLeft: 16,
+                    paddingRight: 16,
+                    cursor: 'pointer',
+                    colorScheme: isDark ? 'dark' : 'light',
+                  },
+                })}
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => openRangePicker('to')}
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 16,
+                  borderRadius: 14,
+                  backgroundColor: T.card,
+                  borderWidth: 1,
+                  borderColor: T.glassBorder,
+                }}>
+                <Text style={{ fontFamily: Font.jakarta600, fontSize: 15, color: T.textPrimary }}>{rangeToKey}</Text>
+              </Pressable>
+            )}
           </View>
         </View>
 
@@ -582,7 +620,7 @@ export default function GastosScreen() {
         </View>
       </View>
     ),
-    [T, headerTitleRow, pills, rangeFromKey, rangeToKey, openRangePicker, handleDatePress, totalRange, moneda, rangeFiltered.length],
+    [T, headerTitleRow, pills, rangeFromKey, rangeToKey, openRangePicker, totalRange, moneda, rangeFiltered.length, isDark],
   );
 
   const listHeaderTotal = useMemo(

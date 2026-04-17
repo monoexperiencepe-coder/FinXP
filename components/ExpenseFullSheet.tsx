@@ -1,6 +1,6 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -287,17 +287,6 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   };
 
   const openDatePicker = () => {
-    if (Platform.OS === 'web') {
-      const input = document.createElement('input');
-      input.type = 'date';
-      input.value = fecha;
-      input.onchange = (e: Event) => {
-        const v = (e.target as HTMLInputElement).value;
-        if (v) setFecha(v);
-      };
-      input.click();
-      return;
-    }
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: fechaKeyToDate(fecha),
@@ -466,29 +455,59 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                 }}>
                 FECHA
               </Text>
-              <TouchableOpacity
-                activeOpacity={0.85}
-                style={{
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
-                  backgroundColor: T.surface,
-                  borderColor: T.glassBorder,
-                  justifyContent: 'center',
-                }}
-                onPress={openDatePicker}>
-                <Text style={{ color: T.textPrimary, fontSize: 15 }}>
-                  {fecha
-                    ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-PE', {
-                        weekday: 'long',
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      })
-                    : 'Seleccionar fecha'}
-                </Text>
-              </TouchableOpacity>
+              {Platform.OS === 'web' ? (
+                <View
+                  style={{
+                    backgroundColor: T.surface,
+                    borderColor: T.glassBorder,
+                    borderWidth: 1,
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                  }}>
+                  {createElement('input', {
+                    type: 'date',
+                    value: fecha,
+                    onChange: (e: { target: { value: string } }) => setFecha(e.target.value),
+                    style: {
+                      width: '100%',
+                      height: 52,
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: T.textPrimary,
+                      fontSize: 15,
+                      paddingLeft: 16,
+                      paddingRight: 16,
+                      cursor: 'pointer',
+                      colorScheme: isDark ? 'dark' : 'light',
+                    },
+                  })}
+                </View>
+              ) : (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={{
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    backgroundColor: T.surface,
+                    borderColor: T.glassBorder,
+                    justifyContent: 'center',
+                  }}
+                  onPress={openDatePicker}>
+                  <Text style={{ color: T.textPrimary, fontSize: 15, paddingLeft: 0 }}>
+                    {fecha
+                      ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-PE', {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })
+                      : 'Seleccionar fecha'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
             {Platform.OS === 'ios' && showIosPicker ? (
               <DateTimePicker
