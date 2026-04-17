@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
-  Modal,
   Pressable,
   ScrollView,
   Switch,
@@ -14,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Font } from '@/constants/typography';
-import { avatarRingBorder, logoutRowStyle, modalOverlayScrim, onPrimaryGradient } from '@/constants/theme';
+import { avatarRingBorder, logoutRowStyle, onPrimaryGradient } from '@/constants/theme';
 import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
 import { formatMoney } from '@/lib/currency';
@@ -179,9 +178,8 @@ export default function PerfilScreen() {
   const addCreditCard = useFinanceStore((s) => s.addCreditCard);
   const updateCreditCard = useFinanceStore((s) => s.updateCreditCard);
   const setBudgetCategoryLimit = useFinanceStore((s) => s.setBudgetCategoryLimit);
-  const updateMetodoDePago = useFinanceStore((s) => s.updateMetodoDePago);
-  const addMetodoDePago = useFinanceStore((s) => s.addMetodoDePago);
-  const removeMetodoDePago = useFinanceStore((s) => s.removeMetodoDePago);
+  const addMetodoPago = useFinanceStore((s) => s.addMetodoPago);
+  const removeMetodoPago = useFinanceStore((s) => s.removeMetodoPago);
   const toggleTheme = useFinanceStore((s) => s.toggleTheme);
   const addCategory = useFinanceStore((s) => s.addCategory);
   const removeCategory = useFinanceStore((s) => s.removeCategory);
@@ -189,8 +187,8 @@ export default function PerfilScreen() {
   const [openSection, setOpenSection] = useState<string | null>('cuenta');
   const [nombreDraft, setNombreDraft] = useState(profile.nombreUsuario);
   const [tipoCambioDraft, setTipoCambioDraft] = useState(String(profile.tipoDeCambio));
-  const [addMetodoOpen, setAddMetodoOpen] = useState(false);
-  const [newMetodoDraft, setNewMetodoDraft] = useState('');
+  const [newMetodo, setNewMetodo] = useState('');
+  const [showMetodoInput, setShowMetodoInput] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [showCatInput, setShowCatInput] = useState(false);
 
@@ -242,6 +240,13 @@ export default function PerfilScreen() {
     setShowCatInput(false);
   }, [newCatName, addCategory]);
 
+  const handleAddMetodo = useCallback(async () => {
+    if (!newMetodo.trim()) return;
+    await addMetodoPago(newMetodo.trim());
+    setNewMetodo('');
+    setShowMetodoInput(false);
+  }, [newMetodo, addMetodoPago]);
+
   const budgetByCat = useMemo(() => {
     const map: Record<string, number> = {};
     budgets.forEach((b) => {
@@ -249,11 +254,6 @@ export default function PerfilScreen() {
     });
     return map;
   }, [budgets]);
-
-  const metodosDePagoList = useMemo(
-    () => profile.metodosDePago ?? DEFAULT_METODOS_DE_PAGO,
-    [profile.metodosDePago],
-  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
@@ -668,125 +668,88 @@ export default function PerfilScreen() {
             icon="💳"
             expanded={openSection === 'metodos'}
             onToggle={() => toggleSection('metodos')}>
-            {metodosDePagoList.map((m) => (
-              <View
-                key={m.id}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 10,
-                  paddingVertical: 12,
-                  marginBottom: 8,
-                }}>
-                <TextInput
-                  value={m.nombre}
-                  onChangeText={(t) => updateMetodoDePago(m.id, { nombre: t })}
-                  style={{ flex: 1, color: T.textPrimary, fontSize: 14, fontFamily: Font.manrope500 }}
-                />
-                <Switch
-                  value={m.activo}
-                  onValueChange={(v) => updateMetodoDePago(m.id, { activo: v })}
-                  trackColor={{ false: T.glassBorder, true: T.primaryBg }}
-                  thumbColor={m.activo ? T.primary : T.textMuted}
-                />
-                <Pressable
-                  onPress={() => {
-                    if (metodosDePagoList.length <= 1) {
-                      Alert.alert('No disponible', 'Debe existir al menos un método de pago.');
-                      return;
-                    }
-                    removeMetodoDePago(m.id);
-                  }}
-                  hitSlop={8}
-                  style={{ padding: 6 }}>
-                  <Text style={{ fontSize: 18, color: T.error }}>🗑️</Text>
-                </Pressable>
-              </View>
-            ))}
-            <Pressable
-              onPress={() => {
-                setNewMetodoDraft('');
-                setAddMetodoOpen(true);
-              }}
-              style={{
-                marginTop: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: T.primary,
-                paddingVertical: 12,
-                alignItems: 'center',
-              }}>
-              <Text style={{ color: T.primary, fontWeight: '700' }}>+ Agregar método</Text>
-            </Pressable>
-          </AccordionSection>
-
-          <Modal visible={addMetodoOpen} transparent animationType="fade" onRequestClose={() => setAddMetodoOpen(false)}>
-            <Pressable
-              style={{ flex: 1, backgroundColor: modalOverlayScrim, justifyContent: 'center', padding: 24 }}
-              onPress={() => setAddMetodoOpen(false)}>
-              <Pressable
-                onPress={(e) => e.stopPropagation()}
-                style={{
-                  backgroundColor: T.surface,
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: T.glassBorder,
-                  padding: 18,
-                }}>
-                <View style={{ alignItems: 'center', marginBottom: 8 }}>
-                  <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: T.primaryBorder }} />
+            <View style={{ gap: 10 }}>
+              {(profile.metodosDePago ?? DEFAULT_METODOS_DE_PAGO).map((m) => (
+                <View
+                  key={m.id}
+                  style={[
+                    {
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: 12,
+                      borderRadius: 12,
+                      backgroundColor: T.surface,
+                    },
+                  ]}>
+                  <Text style={[{ flex: 1, color: T.textPrimary, fontSize: 14 }]}>{m.nombre}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if ((profile.metodosDePago ?? DEFAULT_METODOS_DE_PAGO).length <= 1) {
+                        Alert.alert('No disponible', 'Debe existir al menos un método de pago.');
+                        return;
+                      }
+                      void removeMetodoPago(m.nombre);
+                    }}>
+                    <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
+                  </TouchableOpacity>
                 </View>
-                <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 16 }}>
-                  Nuevo método de pago
-                </Text>
-                <TextInput
-                  value={newMetodoDraft}
-                  onChangeText={setNewMetodoDraft}
-                  placeholder="Nombre (ej. Yape)"
-                  placeholderTextColor={T.textMuted}
-                  style={{
-                    marginTop: 14,
+              ))}
+              {showMetodoInput && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[
+                      {
+                        flex: 1,
+                        height: 44,
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        fontSize: 14,
+                        backgroundColor: T.surface,
+                        color: T.textPrimary,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                      },
+                    ]}
+                    placeholder="Nombre del método"
+                    placeholderTextColor={T.textMuted}
+                    value={newMetodo}
+                    onChangeText={setNewMetodo}
+                    autoFocus
+                  />
+                  <TouchableOpacity
+                    style={[
+                      {
+                        height: 44,
+                        paddingHorizontal: 16,
+                        borderRadius: 10,
+                        backgroundColor: T.primary,
+                        justifyContent: 'center',
+                      },
+                    ]}
+                    onPress={() => void handleAddMetodo()}>
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  {
+                    height: 44,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: T.glassBorder,
-                    backgroundColor: T.card,
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                    fontFamily: Font.manrope500,
-                    fontSize: 15,
-                    color: T.textPrimary,
-                  }}
-                />
-                <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
-                  <Pressable
-                    onPress={() => setAddMetodoOpen(false)}
-                    style={{
-                      flex: 1,
-                      paddingVertical: 12,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: T.glassBorder,
-                      alignItems: 'center',
-                    }}>
-                    <Text style={{ fontFamily: Font.manrope600, color: T.textMuted, fontSize: 14 }}>Cancelar</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      const t = newMetodoDraft.trim();
-                      if (!t) return;
-                      addMetodoDePago(t);
-                      setAddMetodoOpen(false);
-                      setNewMetodoDraft('');
-                    }}
-                    style={{ flex: 1, borderRadius: 12, overflow: 'hidden' }}>
-                    <GradientView colors={T.primaryGrad} style={{ paddingVertical: 12, alignItems: 'center' }}>
-                      <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 14 }}>Agregar</Text>
-                    </GradientView>
-                  </Pressable>
-                </View>
-              </Pressable>
-            </Pressable>
-          </Modal>
+                    borderColor: T.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  },
+                ]}
+                onPress={() => setShowMetodoInput(!showMetodoInput)}>
+                <Text style={[{ color: T.primary, fontWeight: '600', fontSize: 14 }]}>
+                  {showMetodoInput ? 'Cancelar' : '+ Agregar método'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </AccordionSection>
 
           <Pressable
             style={{

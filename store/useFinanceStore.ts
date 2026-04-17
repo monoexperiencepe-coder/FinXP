@@ -410,6 +410,8 @@ type FinanceState = {
   updateMetodoDePago: (id: string, patch: Partial<Pick<MetodoDePagoItem, 'nombre' | 'activo'>>) => void;
   addMetodoDePago: (nombre: string) => void;
   removeMetodoDePago: (id: string) => void;
+  addMetodoPago: (metodo: string) => Promise<void>;
+  removeMetodoPago: (metodo: string) => Promise<void>;
   addFixedExpense: () => void;
   updateFixedExpense: (id: string, patch: Partial<Pick<FixedExpense, 'descripcion' | 'montoMensual'>>) => void;
   addCreditCard: () => void;
@@ -458,9 +460,7 @@ type FinanceState = {
     estadoDeAnimo: EstadoDeAnimo;
     descripcion?: string;
     comercio?: string;
-    esEsencial?: boolean;
     fecha?: string;
-    cuenta?: string;
     medioDePago?: string;
     banco?: string;
     moneda?: MonedaCode;
@@ -491,6 +491,8 @@ const seedState = (): Omit<
   | 'updateMetodoDePago'
   | 'addMetodoDePago'
   | 'removeMetodoDePago'
+  | 'addMetodoPago'
+  | 'removeMetodoPago'
   | 'addFixedExpense'
   | 'updateFixedExpense'
   | 'addCreditCard'
@@ -620,6 +622,32 @@ export const useFinanceStore = create<FinanceState>()(
             },
           };
         });
+      },
+
+      addMetodoPago: async (metodo) => {
+        const { useAuthStore } = await import('./useAuthStore');
+        const userId = useAuthStore.getState().user?.id;
+        if (!userId) return;
+        const trimmed = metodo.trim();
+        if (!trimmed) return;
+        const list = [...(get().profile.metodosDePago ?? DEFAULT_METODOS_DE_PAGO)];
+        list.push({ id: createId(), nombre: trimmed, activo: true });
+        set({ profile: { ...get().profile, metodosDePago: list } });
+        const db = await import('@/lib/database');
+        await db.updateProfile(userId, { metodos_de_pago: list.map((m) => m.nombre) });
+      },
+
+      removeMetodoPago: async (metodo) => {
+        const { useAuthStore } = await import('./useAuthStore');
+        const userId = useAuthStore.getState().user?.id;
+        if (!userId) return;
+        const list = [...(get().profile.metodosDePago ?? DEFAULT_METODOS_DE_PAGO)];
+        if (list.length <= 1) return;
+        const nuevos = list.filter((m) => m.nombre !== metodo);
+        if (nuevos.length === 0) return;
+        set({ profile: { ...get().profile, metodosDePago: nuevos } });
+        const db = await import('@/lib/database');
+        await db.updateProfile(userId, { metodos_de_pago: nuevos.map((m) => m.nombre) });
       },
 
       addFixedExpense: () => {
@@ -887,6 +915,7 @@ export const useFinanceStore = create<FinanceState>()(
         const { useAuthStore } = await import('./useAuthStore');
         const userId = useAuthStore.getState().user?.id;
         if (!userId) return;
+        if (get().categories.length > 0) return;
         const db = await import('@/lib/database');
         try {
           const cats = await db.getCategories(userId);
@@ -931,10 +960,8 @@ export const useFinanceStore = create<FinanceState>()(
         importe,
         descripcion,
         estadoDeAnimo,
-        esEsencial,
         comercio,
         fecha,
-        cuenta,
         medioDePago,
         banco,
         moneda,
@@ -946,10 +973,8 @@ export const useFinanceStore = create<FinanceState>()(
             importe,
             descripcion,
             estadoDeAnimo,
-            esEsencial,
             comercio,
             fecha,
-            cuenta,
             medioDePago,
             banco,
             moneda,
@@ -963,14 +988,14 @@ export const useFinanceStore = create<FinanceState>()(
         const ym = currentYearMonth(fechaDate);
         const expensePayload: Omit<Expense, 'id'> = {
           fecha: fechaIso,
-          cuenta: cuenta ?? 'Principal',
+          cuenta: 'Principal',
           medioDePago: medioDePago ?? 'Tarjeta',
           banco: banco ?? '',
           categoria,
           comercio:
             comercio?.trim() ||
             (descripcion?.trim() ? descripcion.trim().slice(0, 40) : 'Registro rápido'),
-          esEsencial: esEsencial ?? false,
+          esEsencial: false,
           estadoDeAnimo,
           moneda: moneda ?? profile.monedaPrincipal,
           descripcion: descripcion?.trim() ?? '',

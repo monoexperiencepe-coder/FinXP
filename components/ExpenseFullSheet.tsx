@@ -8,7 +8,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  Switch,
   Text,
   TextInput,
   useWindowDimensions,
@@ -40,7 +39,6 @@ const SECTION = 24;
 const SPRING_OPEN = { damping: 26, stiffness: 280 } as const;
 const SPRING_CLOSE = { damping: 28, stiffness: 260 } as const;
 
-const CUENTAS = ['Gastos', 'Salud', 'Inversión', 'Educación'] as const;
 const MEDIOS = ['Crédito', 'Débito', 'Efectivo'] as const;
 const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Diners Club', 'CMR', 'PayPal', 'Otro'] as const;
 
@@ -184,11 +182,9 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [moneda, setMoneda] = useState<MonedaCode>(profile.monedaPrincipal);
   const [categoria, setCategoria] = useState<string>(categories[0]?.nombre ?? '');
   const [mood, setMood] = useState<EstadoDeAnimo>('NEUTRAL');
-  const [cuenta, setCuenta] = useState<string>(CUENTAS[0]);
   const [medio, setMedio] = useState<string>(MEDIOS[0]);
   const [banco, setBanco] = useState<string>(BANCOS[0]);
   const [bancoMenu, setBancoMenu] = useState(false);
-  const [esEsencial, setEsEsencial] = useState(false);
   const [comercio, setComercio] = useState('');
   const [nota, setNota] = useState('');
 
@@ -235,10 +231,8 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     setMoneda(profile.monedaPrincipal);
     setCategoria(categories[0]?.nombre ?? '');
     setMood('NEUTRAL');
-    setCuenta(CUENTAS[0]);
     setMedio(MEDIOS[0]);
     setBanco(BANCOS[0]);
-    setEsEsencial(false);
     setComercio('');
     setNota('');
     setAmount('');
@@ -360,9 +354,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
         estadoDeAnimo: mood,
         descripcion: nota.trim(),
         comercio: comercio.trim(),
-        esEsencial,
         fecha: fechaIso,
-        cuenta,
         medioDePago: medio,
         banco,
         moneda,
@@ -604,40 +596,6 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                 color: T.textMuted,
                 fontSize: 11,
                 letterSpacing: 2,
-                marginBottom: 8 }}>CUENTA</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {CUENTAS.map((c) => {
-                const active = cuenta === c;
-                return (
-                  <Pressable key={c} onPress={() => setCuenta(c)}>
-                    {active ? (
-                      <GradientView colors={T.primaryGrad} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}>
-                        <Text style={{ fontFamily: Font.manrope600, fontSize: 14, color: onPrimaryGradient.text }}>{c}</Text>
-                      </GradientView>
-                    ) : (
-                      <View
-                        style={{
-                          borderRadius: 999,
-                          paddingHorizontal: 12,
-                          paddingVertical: 8,
-                          backgroundColor: T.card,
-                          borderWidth: 1,
-                          borderColor: T.glassBorder,
-                        }}>
-                        <Text style={{ fontFamily: Font.manrope500, fontSize: 14, color: T.textMuted }}>{c}</Text>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
                 marginBottom: 8 }}>
               MEDIO DE PAGO
             </Text>
@@ -681,28 +639,6 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               <Text className="text-base text-text">{banco}</Text>
               <Text className="text-muted">▾</Text>
             </Pressable>
-
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>
-              ¿ES ESENCIAL?
-            </Text>
-            <View className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
-              <View className="mr-3 flex-1">
-                <Text className="text-base text-text">Gasto esencial</Text>
-                <Text className="mt-1 text-xs text-muted">Alimentación, salud, transporte básico</Text>
-              </View>
-              <Switch
-                value={esEsencial}
-                onValueChange={setEsEsencial}
-                trackColor={{ false: T.cardElevated, true: T.primaryBg }}
-                thumbColor={esEsencial ? T.primary : T.textMuted}
-              />
-            </View>
 
             <View style={{ height: SECTION }} />
 

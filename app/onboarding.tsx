@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
@@ -13,13 +13,16 @@ const METODOS = ['Efectivo', 'Tarjeta Débito', 'Tarjeta Crédito', 'Yape', 'Pli
 export default function OnboardingScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { categories, loadFromSupabase, loadCategories } = useFinanceStore();
+  const { categories, loadFromSupabase, loadCategories, profile } = useFinanceStore();
   const [step, setStep] = useState(0);
 
   const [nombre, setNombre] = useState('');
   const [moneda, setMoneda] = useState('PEN');
   const [tipoCambio, setTipoCambio] = useState('3.75');
-  const [metodosSeleccionados, setMetodosSeleccionados] = useState<string[]>(['Efectivo', 'Yape']);
+  const [metodosSeleccionados, setMetodosSeleccionados] = useState<string[]>(() => {
+    const nombres = (profile.metodosDePago ?? []).map((m) => m.nombre);
+    return nombres.length > 0 ? nombres : ['Efectivo', 'Yape'];
+  });
 
   const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
 
@@ -36,6 +39,11 @@ export default function OnboardingScreen() {
       prev.includes(metodo) ? prev.filter((m) => m !== metodo) : [...prev, metodo],
     );
   };
+
+  const metodosPills = useMemo(() => {
+    const fromProfile = (profile.metodosDePago ?? []).map((m) => m.nombre);
+    return [...new Set([...METODOS, ...fromProfile])];
+  }, [profile.metodosDePago]);
 
   const handleFinish = async () => {
     if (!user) {
@@ -192,7 +200,7 @@ export default function OnboardingScreen() {
             <View style={{ gap: 8 }}>
               <Text style={[styles.label, { color: T.textSecondary }]}>Métodos de pago que usas</Text>
               <View style={styles.pillRow}>
-                {METODOS.map((m) => (
+                {metodosPills.map((m) => (
                   <TouchableOpacity
                     key={m}
                     style={[
