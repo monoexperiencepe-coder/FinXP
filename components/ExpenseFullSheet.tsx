@@ -27,7 +27,6 @@ import AnimatedRN, {
 } from 'react-native-reanimated';
 import { ScrollView } from 'react-native-gesture-handler';
 
-import { EXPENSE_CATEGORIES, type ExpenseCategoryId } from '@/constants/expenseCategories';
 import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { GradientView } from '@/components/ui/GradientView';
@@ -162,6 +161,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const addExpenseToSupabase = useFinanceStore((s) => s.addExpenseToSupabase);
+  const categories = useFinanceStore((s) => s.categories);
   const profile = useFinanceStore((s) => s.profile);
 
   const [isVisible, setIsVisible] = useState(false);
@@ -182,7 +182,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [amount, setAmount] = useState('');
   const [amountFocused, setAmountFocused] = useState(false);
   const [moneda, setMoneda] = useState<MonedaCode>(profile.monedaPrincipal);
-  const [categoria, setCategoria] = useState<ExpenseCategoryId>(EXPENSE_CATEGORIES[0].id);
+  const [categoria, setCategoria] = useState<string>(categories[0]?.nombre ?? '');
   const [mood, setMood] = useState<EstadoDeAnimo>('NEUTRAL');
   const [cuenta, setCuenta] = useState<string>(CUENTAS[0]);
   const [medio, setMedio] = useState<string>(MEDIOS[0]);
@@ -233,7 +233,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     prevOpen.current = open;
     if (!becameOpen) return;
     setMoneda(profile.monedaPrincipal);
-    setCategoria(EXPENSE_CATEGORIES[0].id);
+    setCategoria(categories[0]?.nombre ?? '');
     setMood('NEUTRAL');
     setCuenta(CUENTAS[0]);
     setMedio(MEDIOS[0]);
@@ -245,7 +245,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     setDate(new Date());
     setFieldError(null);
     requestAnimationFrame(() => openSheet());
-  }, [open, openSheet, profile.monedaPrincipal]);
+  }, [open, openSheet, profile.monedaPrincipal, categories]);
 
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -569,13 +569,13 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                   : undefined,
               ]}>
               <View className="flex-row flex-wrap">
-                {EXPENSE_CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <CategoryCell
                     key={cat.id}
                     emoji={cat.emoji}
-                    name={cat.name}
-                    selected={categoria === cat.id}
-                    onPress={() => setCategoria(cat.id)}
+                    name={cat.nombre}
+                    selected={categoria === cat.nombre}
+                    onPress={() => setCategoria(cat.nombre)}
                   />
                 ))}
               </View>

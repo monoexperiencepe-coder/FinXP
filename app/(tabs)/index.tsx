@@ -99,6 +99,7 @@ export default function HomeScreen() {
   const budgets = useFinanceStore((s) => s.budgets);
   const profile = useFinanceStore((s) => s.profile);
   const loadFromSupabase = useFinanceStore((s) => s.loadFromSupabase);
+  const loadCategories = useFinanceStore((s) => s.loadCategories);
   const session = useAuthStore((s) => s.session);
   const [expenseSheetOpen, setExpenseSheetOpen] = useState(false);
   const [incomeSheetOpen, setIncomeSheetOpen] = useState(false);
@@ -106,8 +107,9 @@ export default function HomeScreen() {
   useEffect(() => {
     if (session) {
       void loadFromSupabase();
+      void loadCategories();
     }
-  }, [session, loadFromSupabase]);
+  }, [session, loadFromSupabase, loadCategories]);
 
   const initial = useMemo(() => (profile.nombreUsuario?.trim()?.charAt(0) || 'U').toUpperCase(), [profile.nombreUsuario]);
   const monthSpent = useMemo(

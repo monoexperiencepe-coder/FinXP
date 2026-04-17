@@ -382,3 +382,57 @@ export async function getMissions(userId: string) {
   if (error) throw error;
   return data ?? [];
 }
+
+export async function getCategories(userId: string) {
+  const { data, error } = await supabase
+    .from('user_categories')
+    .select('*')
+    .eq('user_id', userId)
+    .order('orden', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function addCategory(userId: string, nombre: string, emoji: string = '📦', orden: number = 0) {
+  const { data, error } = await supabase
+    .from('user_categories')
+    .insert({ user_id: userId, nombre, emoji, orden })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateCategory(categoryId: string, nombre: string, emoji: string) {
+  const { error } = await supabase
+    .from('user_categories')
+    .update({ nombre, emoji })
+    .eq('id', categoryId);
+  if (error) throw error;
+}
+
+export async function deleteCategory(categoryId: string) {
+  const { error } = await supabase
+    .from('user_categories')
+    .delete()
+    .eq('id', categoryId);
+  if (error) throw error;
+}
+
+export async function initDefaultCategories(userId: string) {
+  const defaults = [
+    { nombre: 'Alimentación', emoji: '🍔', orden: 0 },
+    { nombre: 'Transporte', emoji: '🚌', orden: 1 },
+    { nombre: 'Entretenimiento', emoji: '🎮', orden: 2 },
+    { nombre: 'Salud', emoji: '💊', orden: 3 },
+    { nombre: 'Ropa', emoji: '👕', orden: 4 },
+    { nombre: 'Educación', emoji: '📚', orden: 5 },
+    { nombre: 'Hogar', emoji: '🏠', orden: 6 },
+    { nombre: 'Servicios', emoji: '💡', orden: 7 },
+    { nombre: 'Otros', emoji: '📦', orden: 8 },
+  ];
+  const { error } = await supabase
+    .from('user_categories')
+    .insert(defaults.map((c) => ({ ...c, user_id: userId })));
+  if (error) throw error;
+}

@@ -446,7 +446,12 @@ type FinanceState = {
 
   syncing: boolean;
   lastSync: string | null;
+  categories: { id: string; nombre: string; emoji: string; orden: number }[];
   loadFromSupabase: () => Promise<void>;
+  loadCategories: () => Promise<void>;
+  addCategory: (nombre: string, emoji?: string) => Promise<void>;
+  removeCategory: (id: string) => Promise<void>;
+  updateCategory: (id: string, nombre: string, emoji: string) => Promise<void>;
   addExpenseToSupabase: (input: {
     categoria: string;
     importe: number;
@@ -500,7 +505,12 @@ const seedState = (): Omit<
   | 'toggleTheme'
   | 'syncing'
   | 'lastSync'
+  | 'categories'
   | 'loadFromSupabase'
+  | 'loadCategories'
+  | 'addCategory'
+  | 'removeCategory'
+  | 'updateCategory'
   | 'addExpenseToSupabase'
   | 'addIncomeToSupabase'
 > => {
@@ -537,6 +547,7 @@ export const useFinanceStore = create<FinanceState>()(
       theme: 'dark',
       syncing: false,
       lastSync: null,
+      categories: [],
 
       toggleTheme: () => {
         set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' }));
@@ -870,6 +881,45 @@ export const useFinanceStore = create<FinanceState>()(
           console.error('Error cargando de Supabase:', e);
           set({ syncing: false });
         }
+      },
+
+      loadCategories: async () => {
+        const { useAuthStore } = await import('./useAuthStore');
+        const userId = useAuthStore.getState().user?.id;
+        if (!userId) return;
+        const db = await import('@/lib/database');
+        const cats = await db.getCategories(userId);
+        if (cats.length === 0) {
+          await db.initDefaultCategories(userId);
+          const fresh = await db.getCategories(userId);
+          set({ categories: fresh });
+        } else {
+          set({ categories: cats });
+        }
+      },
+
+      addCategory: async (nombre, emoji = '📦') => {
+        const { useAuthStore } = await import('./useAuthStore');
+        const userId = useAuthStore.getState().user?.id;
+        if (!userId) return;
+        const db = await import('@/lib/database');
+        const orden = get().categories.length;
+        const newCat = await db.addCategory(userId, nombre, emoji, orden);
+        set((state) => ({ categories: [...state.categories, newCat] }));
+      },
+
+      removeCategory: async (id) => {
+        const db = await import('@/lib/database');
+        await db.deleteCategory(id);
+        set((state) => ({ categories: state.categories.filter((c) => c.id !== id) }));
+      },
+
+      updateCategory: async (id, nombre, emoji) => {
+        const db = await import('@/lib/database');
+        await db.updateCategory(id, nombre, emoji);
+        set((state) => ({
+          categories: state.categories.map((c) => (c.id === id ? { ...c, nombre, emoji } : c)),
+        }));
       },
 
       addExpenseToSupabase: async ({

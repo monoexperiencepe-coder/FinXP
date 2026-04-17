@@ -8,6 +8,7 @@ import {
   Switch,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -169,6 +170,7 @@ export default function PerfilScreen() {
   const fixedExpenses = useFinanceStore((s) => s.fixedExpenses);
   const creditCards = useFinanceStore((s) => s.creditCards);
   const budgets = useFinanceStore((s) => s.budgets);
+  const categories = useFinanceStore((s) => s.categories);
 
   const setNombreUsuario = useFinanceStore((s) => s.setNombreUsuario);
   const setMonedaPrincipal = useFinanceStore((s) => s.setMonedaPrincipal);
@@ -182,12 +184,16 @@ export default function PerfilScreen() {
   const addMetodoDePago = useFinanceStore((s) => s.addMetodoDePago);
   const removeMetodoDePago = useFinanceStore((s) => s.removeMetodoDePago);
   const toggleTheme = useFinanceStore((s) => s.toggleTheme);
+  const addCategory = useFinanceStore((s) => s.addCategory);
+  const removeCategory = useFinanceStore((s) => s.removeCategory);
 
   const [openSection, setOpenSection] = useState<string | null>('cuenta');
   const [nombreDraft, setNombreDraft] = useState(profile.nombreUsuario);
   const [tipoCambioDraft, setTipoCambioDraft] = useState(String(profile.tipoDeCambio));
   const [addMetodoOpen, setAddMetodoOpen] = useState(false);
   const [newMetodoDraft, setNewMetodoDraft] = useState('');
+  const [newCatName, setNewCatName] = useState('');
+  const [showCatInput, setShowCatInput] = useState(false);
 
   useEffect(() => {
     setNombreDraft(profile.nombreUsuario);
@@ -229,6 +235,13 @@ export default function PerfilScreen() {
       { text: 'Cerrar sesión', style: 'destructive', onPress: () => {} },
     ]);
   }, []);
+
+  const handleAddCategory = useCallback(async () => {
+    if (!newCatName.trim()) return;
+    await addCategory(newCatName.trim());
+    setNewCatName('');
+    setShowCatInput(false);
+  }, [newCatName, addCategory]);
 
   const budgetByCat = useMemo(() => {
     const map: Record<string, number> = {};
@@ -612,6 +625,85 @@ export default function PerfilScreen() {
                 </View>
               );
             })}
+
+            <View style={{ gap: 10, marginTop: 12 }}>
+              <Text style={[{ color: T.textSecondary, fontSize: 13, fontWeight: '600' }]}>
+                Categorías de gastos
+              </Text>
+              {categories.map((cat) => (
+                <View
+                  key={cat.id}
+                  style={[
+                    {
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: 12,
+                      borderRadius: 12,
+                      backgroundColor: T.surface,
+                    },
+                  ]}>
+                  <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
+                  <Text style={[{ flex: 1, color: T.textPrimary, fontSize: 14 }]}>{cat.nombre}</Text>
+                  <TouchableOpacity onPress={() => void removeCategory(cat.id)}>
+                    <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {showCatInput && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[
+                      {
+                        flex: 1,
+                        height: 44,
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        fontSize: 14,
+                        backgroundColor: T.surface,
+                        color: T.textPrimary,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                      },
+                    ]}
+                    placeholder="Nombre de categoría"
+                    placeholderTextColor={T.textMuted}
+                    value={newCatName}
+                    onChangeText={setNewCatName}
+                    autoFocus
+                  />
+                  <TouchableOpacity
+                    style={[
+                      {
+                        height: 44,
+                        paddingHorizontal: 16,
+                        borderRadius: 10,
+                        backgroundColor: T.primary,
+                        justifyContent: 'center',
+                      },
+                    ]}
+                    onPress={() => void handleAddCategory()}>
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  {
+                    height: 44,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: T.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  },
+                ]}
+                onPress={() => setShowCatInput(!showCatInput)}>
+                <Text style={[{ color: T.primary, fontWeight: '600', fontSize: 14 }]}>
+                  {showCatInput ? 'Cancelar' : '+ Agregar categoría'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </AccordionSection>
 
           <AccordionSection

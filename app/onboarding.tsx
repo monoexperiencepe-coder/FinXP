@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
@@ -8,24 +8,12 @@ import * as db from '@/lib/database';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
-const CATEGORIAS = [
-  { key: 'alimentacion', label: 'Alimentación', emoji: '🍔' },
-  { key: 'transporte', label: 'Transporte', emoji: '🚌' },
-  { key: 'entretenimiento', label: 'Entretenimiento', emoji: '🎮' },
-  { key: 'salud', label: 'Salud', emoji: '💊' },
-  { key: 'ropa-calzado', label: 'Ropa', emoji: '👕' },
-  { key: 'educacion', label: 'Educación', emoji: '📚' },
-  { key: 'hogar', label: 'Hogar', emoji: '🏠' },
-  { key: 'servicios', label: 'Servicios', emoji: '💡' },
-  { key: 'otros', label: 'Otros', emoji: '📦' },
-];
-
 const METODOS = ['Efectivo', 'Tarjeta Débito', 'Tarjeta Crédito', 'Yape', 'Plin', 'Transferencia'];
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { loadFromSupabase } = useFinanceStore();
+  const { categories, loadFromSupabase, loadCategories } = useFinanceStore();
   const [step, setStep] = useState(0);
 
   const [nombre, setNombre] = useState('');
@@ -36,6 +24,12 @@ export default function OnboardingScreen() {
   const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
 
   const totalSteps = 4;
+
+  useEffect(() => {
+    if (user) {
+      void loadCategories();
+    }
+  }, [user, loadCategories]);
 
   const toggleMetodo = (metodo: string) => {
     setMetodosSeleccionados((prev) =>
@@ -237,16 +231,16 @@ export default function OnboardingScreen() {
             ¿Cuánto quieres gastar por categoría este mes? (puedes saltarte esto)
           </Text>
           <View style={{ gap: 10, width: '100%' }}>
-            {CATEGORIAS.map((cat) => (
-              <View key={cat.key} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
+            {categories.map((cat) => (
+              <View key={cat.id} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
                 <Text style={{ fontSize: 22 }}>{cat.emoji}</Text>
-                <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{cat.label}</Text>
+                <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{(cat as { label?: string }).label || cat.nombre}</Text>
                 <TextInput
                   style={[styles.budgetInput, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
                   placeholder="0"
                   placeholderTextColor={T.textMuted}
-                  value={presupuestos[cat.key] || ''}
-                  onChangeText={(val) => setPresupuestos((prev) => ({ ...prev, [cat.key]: val }))}
+                  value={presupuestos[cat.nombre] || ''}
+                  onChangeText={(val) => setPresupuestos((prev) => ({ ...prev, [cat.nombre]: val }))}
                   keyboardType="decimal-pad"
                 />
               </View>
