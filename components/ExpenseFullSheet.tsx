@@ -34,12 +34,12 @@ import { formatSpanishLongDate } from '@/lib/formatSpanishDate';
 import { ESTADOS_DE_ANIMO, MOOD_EMOJI, moodLabel } from '@/lib/mood';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { EstadoDeAnimo, MonedaCode } from '@/types';
+import { DEFAULT_METODOS_DE_PAGO } from '@/types';
 
 const SECTION = 24;
 const SPRING_OPEN = { damping: 26, stiffness: 280 } as const;
 const SPRING_CLOSE = { damping: 28, stiffness: 260 } as const;
 
-const MEDIOS = ['Crédito', 'Débito', 'Efectivo'] as const;
 const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Diners Club', 'CMR', 'PayPal', 'Otro'] as const;
 
 function toDateKeyLocal(d: Date): string {
@@ -182,7 +182,11 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [moneda, setMoneda] = useState<MonedaCode>(profile.monedaPrincipal);
   const [categoria, setCategoria] = useState<string>(categories[0]?.nombre ?? '');
   const [mood, setMood] = useState<EstadoDeAnimo>('NEUTRAL');
-  const [medio, setMedio] = useState<string>(MEDIOS[0]);
+  const mediosNombres = useMemo(() => {
+    const list = (profile.metodosDePago ?? []).map((m) => m.nombre);
+    return list.length > 0 ? list : DEFAULT_METODOS_DE_PAGO.map((m) => m.nombre);
+  }, [profile.metodosDePago]);
+  const [medio, setMedio] = useState<string>(() => mediosNombres[0] ?? 'Efectivo');
   const [banco, setBanco] = useState<string>(BANCOS[0]);
   const [bancoMenu, setBancoMenu] = useState(false);
   const [comercio, setComercio] = useState('');
@@ -231,7 +235,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     setMoneda(profile.monedaPrincipal);
     setCategoria(categories[0]?.nombre ?? '');
     setMood('NEUTRAL');
-    setMedio(MEDIOS[0]);
+    setMedio(mediosNombres[0] ?? 'Efectivo');
     setBanco(BANCOS[0]);
     setComercio('');
     setNota('');
@@ -239,7 +243,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     setDate(new Date());
     setFieldError(null);
     requestAnimationFrame(() => openSheet());
-  }, [open, openSheet, profile.monedaPrincipal, categories]);
+  }, [open, openSheet, profile.monedaPrincipal, categories, mediosNombres]);
 
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -600,13 +604,14 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               MEDIO DE PAGO
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {MEDIOS.map((m) => {
-                const active = medio === m;
+              {(profile.metodosDePago?.length ? profile.metodosDePago : DEFAULT_METODOS_DE_PAGO).map((m) => {
+                const nombre = m.nombre;
+                const active = medio === nombre;
                 return (
-                  <Pressable key={m} onPress={() => setMedio(m)}>
+                  <Pressable key={m.id} onPress={() => setMedio(nombre)}>
                     {active ? (
                       <GradientView colors={T.primaryGrad} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}>
-                        <Text style={{ fontFamily: Font.manrope600, fontSize: 14, color: onPrimaryGradient.text }}>{m}</Text>
+                        <Text style={{ fontFamily: Font.manrope600, fontSize: 14, color: onPrimaryGradient.text }}>{nombre}</Text>
                       </GradientView>
                     ) : (
                       <View
@@ -618,7 +623,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                           borderWidth: 1,
                           borderColor: T.glassBorder,
                         }}>
-                        <Text style={{ fontFamily: Font.manrope500, fontSize: 14, color: T.textMuted }}>{m}</Text>
+                        <Text style={{ fontFamily: Font.manrope500, fontSize: 14, color: T.textMuted }}>{nombre}</Text>
                       </View>
                     )}
                   </Pressable>

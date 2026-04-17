@@ -915,7 +915,6 @@ export const useFinanceStore = create<FinanceState>()(
         const { useAuthStore } = await import('./useAuthStore');
         const userId = useAuthStore.getState().user?.id;
         if (!userId) return;
-        if (get().categories.length > 0) return;
         const db = await import('@/lib/database');
         try {
           const cats = await db.getCategories(userId);

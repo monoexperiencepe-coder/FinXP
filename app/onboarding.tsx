@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
+import { createId } from '@/lib/ids';
 import * as db from '@/lib/database';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
@@ -61,6 +62,16 @@ export default function OnboardingScreen() {
         metodos_de_pago: metodosSeleccionados,
         onboarding_done: true,
       });
+      useFinanceStore.setState((state) => ({
+        profile: {
+          ...state.profile,
+          metodosDePago: metodosSeleccionados.map((nombre) => ({
+            id: createId(),
+            nombre,
+            activo: true,
+          })),
+        },
+      }));
       console.log('Profile saved');
 
       const mesActual = new Date().toISOString().slice(0, 7);

@@ -420,6 +420,14 @@ export async function deleteCategory(categoryId: string) {
 }
 
 export async function initDefaultCategories(userId: string) {
+  const { data: existing } = await supabase
+    .from('user_categories')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1);
+
+  if (existing && existing.length > 0) return;
+
   const defaults = [
     { nombre: 'Alimentación', emoji: '🍔', orden: 0 },
     { nombre: 'Transporte', emoji: '🚌', orden: 1 },
