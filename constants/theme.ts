@@ -25,8 +25,8 @@ export const darkTheme = {
 
   // Texto
   textPrimary: '#FFFFFF',
-  textSecondary: '#A8B4D0',
-  textMuted: '#5C6B8A',
+  textSecondary: '#C8D0E0',
+  textMuted: '#8A96B0',
   textInverse: '#0A0B1E',
 
   // Semánticos

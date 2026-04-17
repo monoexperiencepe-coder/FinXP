@@ -18,8 +18,6 @@ import {
   categoryBarColor,
   categorySpendInRange,
   computeResumenInsights,
-  essentialSplitInRange,
-  fixedVsVariableInRange,
   paymentMethodSplitInRange,
   pctChangeVsPrevious,
   periodBounds,
@@ -295,7 +293,6 @@ export default function ResumenScreen() {
   const { T } = useTheme();
   const expenses = useFinanceStore((s) => s.expenses);
   const incomes = useFinanceStore((s) => s.incomes);
-  const fixedExpenses = useFinanceStore((s) => s.fixedExpenses);
   const profile = useFinanceStore((s) => s.profile);
 
   const [period, setPeriod] = useState<PeriodFilter>('mes');
@@ -371,16 +368,6 @@ export default function ResumenScreen() {
   const insights = useMemo(
     () => computeResumenInsights(ingresos, gastos, neto, categorias[0] ?? null),
     [categorias, gastos, ingresos, neto],
-  );
-
-  const fijosVsVars = useMemo(
-    () => fixedVsVariableInRange(fixedExpenses, expenses, start, end, display, rate, refDate),
-    [display, end, expenses, fixedExpenses, rate, refDate, start],
-  );
-
-  const esencialSplit = useMemo(
-    () => essentialSplitInRange(expenses, start, end, display, rate),
-    [display, end, expenses, rate, start],
   );
 
   const topComercios = useMemo(
@@ -521,102 +508,6 @@ export default function ResumenScreen() {
                 </View>
               </GradientView>
             </View>
-          </View>
-
-          <View style={{ marginTop: 20 }}>
-            <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 15, marginBottom: 10 }}>
-              Gastos Fijos vs Variables
-            </Text>
-            <View style={{ gap: 10 }}>
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 13 }}>Fijos</Text>
-                  <Text style={{ fontFamily: Font.jakarta600, color: T.warning, fontSize: 13 }}>
-                    {formatMoney(fijosVsVars.fijos, display)} · {fijosVsVars.pctFijos}%
-                  </Text>
-                </View>
-                <View style={{ height: 8, borderRadius: 4, backgroundColor: T.cardElevated, overflow: 'hidden' }}>
-                  <View
-                    style={{
-                      width: `${fijosVsVars.total > 0 ? (fijosVsVars.fijos / fijosVsVars.total) * 100 : 0}%`,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: T.warning,
-                    }}
-                  />
-                </View>
-              </View>
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 13 }}>Variables</Text>
-                  <Text style={{ fontFamily: Font.jakarta600, color: T.primary, fontSize: 13 }}>
-                    {formatMoney(fijosVsVars.variables, display)} · {fijosVsVars.pctVariables}%
-                  </Text>
-                </View>
-                <View style={{ height: 8, borderRadius: 4, backgroundColor: T.cardElevated, overflow: 'hidden' }}>
-                  <View
-                    style={{
-                      width: `${fijosVsVars.total > 0 ? (fijosVsVars.variables / fijosVsVars.total) * 100 : 0}%`,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: T.primary,
-                    }}
-                  />
-                </View>
-              </View>
-              <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, marginTop: 4 }}>
-                Total combinado: {formatMoney(fijosVsVars.total, display)}
-              </Text>
-            </View>
-          </View>
-
-          <View style={{ marginTop: 22 }}>
-            <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 15, marginBottom: 10 }}>
-              Esencial vs No Esencial
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View
-                style={{
-                  flex: 1,
-                  backgroundColor: T.primaryBg,
-                  borderWidth: 1,
-                  borderColor: T.primaryBorder,
-                  borderRadius: 16,
-                  paddingVertical: 14,
-                  paddingHorizontal: 12,
-                  alignItems: 'center',
-                }}>
-                <Text style={{ fontSize: 22 }}>✅</Text>
-                <Text style={{ fontFamily: Font.jakarta700, color: T.primary, fontSize: 18, marginTop: 6 }}>
-                  {formatMoney(esencialSplit.esencial, display)}
-                </Text>
-                <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 12, marginTop: 4 }}>
-                  {esencialSplit.pctEsencial}%
-                </Text>
-              </View>
-              <View
-                style={{
-                  flex: 1,
-                  backgroundColor: T.card,
-                  borderWidth: 1,
-                  borderColor: T.error,
-                  borderRadius: 16,
-                  paddingVertical: 14,
-                  paddingHorizontal: 12,
-                  alignItems: 'center',
-                }}>
-                <Text style={{ fontSize: 22 }}>🛍️</Text>
-                <Text style={{ fontFamily: Font.jakarta700, color: T.error, fontSize: 18, marginTop: 6 }}>
-                  {formatMoney(esencialSplit.noEsencial, display)}
-                </Text>
-                <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 12, marginTop: 4 }}>
-                  {esencialSplit.pctNoEsencial}%
-                </Text>
-              </View>
-            </View>
-            <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
-              del gasto total este período
-            </Text>
           </View>
 
           <View style={{ marginTop: 22 }}>

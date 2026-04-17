@@ -4,6 +4,7 @@ import {
   Animated,
   Pressable,
   ScrollView,
+  StyleSheet,
   Switch,
   Text,
   TextInput,
@@ -21,64 +22,6 @@ import { formatMoney } from '@/lib/currency';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_METODOS_DE_PAGO } from '@/types';
-
-function NombreInlineEditor({
-  nombreDraft,
-  setNombreDraft,
-  onCommit,
-}: {
-  nombreDraft: string;
-  setNombreDraft: (v: string) => void;
-  onCommit: () => void;
-}) {
-  const { T } = useTheme();
-  const [editing, setEditing] = useState(false);
-  return (
-    <>
-      <Text style={{ color: T.textSecondary, fontSize: 12, marginBottom: 6 }}>Mi nombre</Text>
-      {editing ? (
-        <TextInput
-          value={nombreDraft}
-          onChangeText={setNombreDraft}
-          onBlur={() => {
-            onCommit();
-            setEditing(false);
-          }}
-          onSubmitEditing={() => {
-            onCommit();
-            setEditing(false);
-          }}
-          autoFocus
-          placeholder="Tu nombre"
-          placeholderTextColor={T.textMuted}
-          style={{
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: T.primary,
-            backgroundColor: T.card,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            color: T.textPrimary,
-            fontSize: 15,
-          }}
-        />
-      ) : (
-        <Pressable
-          onPress={() => setEditing(true)}
-          style={{
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: T.glassBorder,
-            backgroundColor: T.card,
-            paddingHorizontal: 12,
-            paddingVertical: 12,
-          }}>
-          <Text style={{ color: T.textPrimary, fontSize: 15 }}>{nombreDraft || 'Toca para editar'}</Text>
-        </Pressable>
-      )}
-    </>
-  );
-}
 
 function AccordionSection({
   title,
@@ -169,17 +112,13 @@ export default function PerfilScreen() {
   const profile = useFinanceStore((s) => s.profile);
   const missions = useFinanceStore((s) => s.missions);
   const fixedExpenses = useFinanceStore((s) => s.fixedExpenses);
-  const creditCards = useFinanceStore((s) => s.creditCards);
   const budgets = useFinanceStore((s) => s.budgets);
   const categories = useFinanceStore((s) => s.categories);
 
-  const setNombreUsuario = useFinanceStore((s) => s.setNombreUsuario);
   const setMonedaPrincipal = useFinanceStore((s) => s.setMonedaPrincipal);
   const setTipoDeCambio = useFinanceStore((s) => s.setTipoDeCambio);
   const addFixedExpense = useFinanceStore((s) => s.addFixedExpense);
   const updateFixedExpense = useFinanceStore((s) => s.updateFixedExpense);
-  const addCreditCard = useFinanceStore((s) => s.addCreditCard);
-  const updateCreditCard = useFinanceStore((s) => s.updateCreditCard);
   const setBudgetCategoryLimit = useFinanceStore((s) => s.setBudgetCategoryLimit);
   const addMetodoPago = useFinanceStore((s) => s.addMetodoPago);
   const removeMetodoPago = useFinanceStore((s) => s.removeMetodoPago);
@@ -188,16 +127,11 @@ export default function PerfilScreen() {
   const removeCategory = useFinanceStore((s) => s.removeCategory);
 
   const [openSection, setOpenSection] = useState<string | null>('cuenta');
-  const [nombreDraft, setNombreDraft] = useState(profile.nombreUsuario);
   const [tipoCambioDraft, setTipoCambioDraft] = useState(String(profile.tipoDeCambio));
   const [newMetodo, setNewMetodo] = useState('');
   const [showMetodoInput, setShowMetodoInput] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [showCatInput, setShowCatInput] = useState(false);
-
-  useEffect(() => {
-    setNombreDraft(profile.nombreUsuario);
-  }, [profile.nombreUsuario]);
 
   useEffect(() => {
     setTipoCambioDraft(String(profile.tipoDeCambio));
@@ -392,11 +326,10 @@ export default function PerfilScreen() {
             icon="⚙️"
             expanded={openSection === 'cuenta'}
             onToggle={() => toggleSection('cuenta')}>
-            <NombreInlineEditor
-              nombreDraft={nombreDraft}
-              setNombreDraft={setNombreDraft}
-              onCommit={() => setNombreUsuario(nombreDraft)}
-            />
+            <Text style={{ color: T.textSecondary, fontSize: 12, marginBottom: 6 }}>Mi nombre</Text>
+            <View style={[styles.inputDisplay, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
+              <Text style={{ color: T.textPrimary, fontSize: 15 }}>{profile.nombreUsuario || 'Usuario'}</Text>
+            </View>
 
             <View
               style={{
@@ -517,70 +450,6 @@ export default function PerfilScreen() {
                 alignItems: 'center',
               }}>
               <Text style={{ color: T.primary, fontWeight: '700' }}>+ Agregar gasto fijo</Text>
-            </Pressable>
-          </AccordionSection>
-
-          <AccordionSection
-            title="Tarjetas"
-            icon="💳"
-            expanded={openSection === 'tarjetas'}
-            onToggle={() => toggleSection('tarjetas')}>
-            {creditCards.map((c) => {
-              const disponible = Math.max(0, c.lineaTotal - c.gastosMes);
-              return (
-                <View
-                  key={c.id}
-                  style={{
-                    paddingVertical: 12,
-                    marginBottom: 12,
-                  }}>
-                  <TextInput
-                    value={c.nombre}
-                    onChangeText={(t) => updateCreditCard(c.id, { nombre: t })}
-                    style={{ color: T.textPrimary, fontSize: 15, fontWeight: '600' }}
-                  />
-                  <Text style={{ color: T.textSecondary, fontSize: 12, marginTop: 4 }}>
-                    Línea disponible: {formatMoney(disponible, c.moneda)}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8 }}>
-                    <Text style={{ color: T.textSecondary, fontSize: 12 }}>Límite total</Text>
-                    <TextInput
-                      value={c.lineaTotal === 0 ? '' : String(c.lineaTotal)}
-                      onChangeText={(t) => {
-                        const n = Number(t.replace(',', '.'));
-                        if (t === '' || Number.isNaN(n)) updateCreditCard(c.id, { lineaTotal: 0 });
-                        else updateCreditCard(c.id, { lineaTotal: n });
-                      }}
-                      keyboardType="decimal-pad"
-                      placeholder="0"
-                      placeholderTextColor={T.textMuted}
-                      style={{
-                        flex: 1,
-                        color: T.gold,
-                        fontSize: 13,
-                        borderWidth: 1,
-                        borderColor: T.glassBorder,
-                        borderRadius: 8,
-                        paddingVertical: 6,
-                        paddingHorizontal: 8,
-                        textAlign: 'right',
-                      }}
-                    />
-                  </View>
-                </View>
-              );
-            })}
-            <Pressable
-              onPress={addCreditCard}
-              style={{
-                marginTop: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: T.primary,
-                paddingVertical: 12,
-                alignItems: 'center',
-              }}>
-              <Text style={{ color: T.primary, fontWeight: '700' }}>+ Agregar tarjeta</Text>
             </Pressable>
           </AccordionSection>
 
@@ -799,3 +668,13 @@ export default function PerfilScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  inputDisplay: {
+    height: 52,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    justifyContent: 'center',
+  },
+});

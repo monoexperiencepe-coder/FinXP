@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GradientView } from '@/components/ui/GradientView';
-import type { AppTheme } from '@/constants/theme';
 import { modalOverlayScrim, onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
@@ -23,38 +22,6 @@ const purpleShadow = {
   shadowRadius: 32,
   elevation: 16,
 } as const;
-
-function PaymentDonut({
-  data,
-  T,
-}: {
-  data: { name: string; value: number; color: string }[];
-  T: AppTheme;
-}) {
-  if (Platform.OS !== 'web') {
-    return (
-      <View
-        style={{
-          width: 140,
-          height: 140,
-          borderRadius: 70,
-          borderWidth: 18,
-          borderColor: T.cardElevated,
-        }}
-      />
-    );
-  }
-  const { PieChart, Pie, Cell } = require('recharts') as typeof import('recharts');
-  return (
-    <PieChart width={140} height={140}>
-      <Pie data={data} dataKey="value" cx="50%" cy="50%" innerRadius={50} outerRadius={70}>
-        {data.map((entry) => (
-          <Cell key={entry.name} fill={entry.color} stroke="none" />
-        ))}
-      </Pie>
-    </PieChart>
-  );
-}
 
 export default function MisionesScreen() {
   const { T } = useTheme();
@@ -88,32 +55,6 @@ export default function MisionesScreen() {
     const names = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     return winner && Number(winner[1]) > 0 ? names[Number(winner[0])] : 'Sin datos';
   }, [expenses]);
-
-  const paymentStats = useMemo(() => {
-    const totals = {
-      Credito: 0,
-      Debito: 0,
-      Efectivo: 0,
-    };
-    expenses.forEach((item) => {
-      const medio = item.medioDePago.toLowerCase();
-      if (medio.includes('efectivo')) totals.Efectivo += item.importe;
-      else if (medio.includes('debito') || medio.includes('débito')) totals.Debito += item.importe;
-      else totals.Credito += item.importe;
-    });
-    const total = totals.Credito + totals.Debito + totals.Efectivo;
-    const creditoPct = total > 0 ? Math.round((totals.Credito / total) * 100) : 0;
-    const debitoPct = total > 0 ? Math.round((totals.Debito / total) * 100) : 0;
-    const efectivoPct = total > 0 ? Math.max(0, 100 - creditoPct - debitoPct) : 0;
-    return {
-      total,
-      rows: [
-        { name: 'Credito', value: creditoPct, color: T.primary },
-        { name: 'Debito', value: debitoPct, color: T.secondary },
-        { name: 'Efectivo', value: efectivoPct, color: T.tertiary },
-      ],
-    };
-  }, [expenses, T.primary, T.secondary, T.tertiary]);
 
   const activeMissions = useMemo(() => missions.filter((m) => !m.completada), [missions]);
   const achievements = useMemo(
@@ -271,40 +212,6 @@ export default function MisionesScreen() {
               <Text style={{ fontFamily: Font.jakarta700, color: T.error, fontSize: 18, marginTop: 2 }}>
                 {expensiveDayLabel}
               </Text>
-            </View>
-          </View>
-
-          <View
-            style={{
-              marginTop: 12,
-              backgroundColor: T.card,
-              borderRadius: 16,
-              padding: 14,
-              shadowColor: T.shadowCard,
-              ...cardShadow,
-            }}>
-            <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 16 }}>Metodos de Pago</Text>
-            <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ width: 140, height: 140, alignItems: 'center', justifyContent: 'center' }}>
-                <PaymentDonut data={paymentStats.rows} T={T} />
-                <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11 }}>Total</Text>
-                  <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 13, marginTop: 2 }}>
-                    {formatMoney(paymentStats.total, profile.monedaPrincipal)}
-                  </Text>
-                </View>
-              </View>
-              <View style={{ flex: 1, gap: 10, paddingLeft: 12 }}>
-                {paymentStats.rows.map((row) => (
-                  <View key={row.name} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: row.color }} />
-                      <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 13 }}>{row.name}</Text>
-                    </View>
-                    <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 13 }}>{row.value}%</Text>
-                  </View>
-                ))}
-              </View>
             </View>
           </View>
 
