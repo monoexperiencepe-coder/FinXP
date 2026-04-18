@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 
+import * as db from '@/lib/database';
 import { supabase } from '@/lib/supabase';
 
 interface AuthState {
@@ -48,14 +49,19 @@ export const useAuthStore = create<AuthState>((set) => ({
   signUp: async (email, password, nombreUsuario) => {
     set({ loading: true });
     try {
-      const { error } = await supabase.auth.signUp({
+      const nombre = nombreUsuario.trim();
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { nombre_usuario: nombreUsuario },
+          data: { nombre_usuario: nombre },
         },
       });
       if (error) throw error;
+      const uid = data.user?.id;
+      if (uid && nombre) {
+        await db.updateProfile(uid, { nombre_usuario: nombre });
+      }
     } finally {
       set({ loading: false });
     }

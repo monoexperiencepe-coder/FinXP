@@ -397,30 +397,7 @@ export default function ResumenScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 100 }}>
-          <GradientView
-            colors={T.primaryGrad}
-            style={{
-              borderRadius: 16,
-              padding: 16,
-              shadowColor: T.shadowPrimary,
-              ...purpleShadow,
-            }}>
-            <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 16 }}>
-              ✨ Asesor Financiero IA FinXP
-            </Text>
-            <View style={{ marginTop: 14, gap: 14 }}>
-              {insights.map((text, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-                  <IaBadge />
-                  <Text style={{ flex: 1, fontFamily: Font.manrope400, color: onPrimaryGradient.text, fontSize: 14, lineHeight: 20 }}>
-                    {text}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </GradientView>
-
-          <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 26, marginTop: 20 }}>Resumen General</Text>
+          <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 26 }}>Resumen General</Text>
           <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 14, marginTop: 6 }}>
             Análisis detallado de tus finanzas
           </Text>
@@ -457,6 +434,30 @@ export default function ResumenScreen() {
               );
             })}
           </View>
+
+          <GradientView
+            colors={T.primaryGrad}
+            style={{
+              marginTop: 20,
+              borderRadius: 16,
+              padding: 16,
+              shadowColor: T.shadowPrimary,
+              ...purpleShadow,
+            }}>
+            <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 16 }}>
+              ✨ Asesor Financiero IA FinXP
+            </Text>
+            <View style={{ marginTop: 14, gap: 14 }}>
+              {insights.map((text, i) => (
+                <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                  <IaBadge />
+                  <Text style={{ flex: 1, fontFamily: Font.manrope400, color: onPrimaryGradient.text, fontSize: 14, lineHeight: 20 }}>
+                    {text}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </GradientView>
 
           <View
             style={{

@@ -265,7 +265,8 @@ export async function getProfile(userId: string): Promise<UserProfileRow | null>
 }
 
 export async function updateProfile(userId: string, updates: UserProfileRowPatch) {
-  const { error } = await supabase.from('user_profiles').update(updates).eq('id', userId);
+  const payload = { id: userId, ...updates } as Record<string, unknown>;
+  const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'id' });
   if (error) throw error;
 }
 

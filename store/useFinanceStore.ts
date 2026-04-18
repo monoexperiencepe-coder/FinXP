@@ -917,11 +917,10 @@ export const useFinanceStore = create<FinanceState>()(
           const profile: UserProfile = profileRow
             ? {
                 id: userId,
-                nombreUsuario: (() => {
-                  const n = profileRow.nombre_usuario;
-                  if (n != null && String(n).trim() !== '') return String(n).trim();
-                  return prev.profile.nombreUsuario;
-                })(),
+                nombreUsuario:
+                  String(profileRow.nombre_usuario ?? '').trim() ||
+                  prev.profile.nombreUsuario ||
+                  '',
                 nivel: profileRow.nivel ?? 1,
                 xpActual: profileRow.xp_actual ?? 0,
                 xpParaSiguienteNivel: profileRow.xp_para_siguiente_nivel ?? 100,

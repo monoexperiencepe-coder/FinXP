@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
-import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function RegisterScreen() {
@@ -31,25 +30,12 @@ export default function RegisterScreen() {
     if (password.length < 6) return Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
     if (password !== confirm) return Alert.alert('Error', 'Las contraseñas no coinciden');
 
-    useAuthStore.setState({ loading: true });
     try {
-      console.log('Attempting signup for:', email.trim());
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: { data: { nombre_usuario: nombre.trim() } },
-      });
-      console.log('Signup result:', data, error);
-
-      if (error) throw error;
-
-      console.log('Signup successful, redirecting to login');
+      await signUp(email.trim(), password, nombre.trim());
       router.replace('/(auth)/login' as any);
     } catch (e: any) {
       console.error('Signup error:', e);
       Alert.alert('Error', e.message || 'No se pudo crear la cuenta');
-    } finally {
-      useAuthStore.setState({ loading: false });
     }
   };
 
