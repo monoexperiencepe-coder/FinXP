@@ -108,6 +108,7 @@ function AccordionSection({
 export default function PerfilScreen() {
   const { T, isDark } = useTheme();
   const { signOut } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
   const profile = useFinanceStore((s) => s.profile);
   const missions = useFinanceStore((s) => s.missions);
   const budgets = useFinanceStore((s) => s.budgets);
@@ -118,6 +119,9 @@ export default function PerfilScreen() {
   const setBudgetCategoryLimit = useFinanceStore((s) => s.setBudgetCategoryLimit);
   const addMetodoPago = useFinanceStore((s) => s.addMetodoPago);
   const removeMetodoPago = useFinanceStore((s) => s.removeMetodoPago);
+  const addBancoDisponible = useFinanceStore((s) => s.addBancoDisponible);
+  const removeBancoDisponible = useFinanceStore((s) => s.removeBancoDisponible);
+  const loadFromSupabase = useFinanceStore((s) => s.loadFromSupabase);
   const toggleTheme = useFinanceStore((s) => s.toggleTheme);
   const addCategory = useFinanceStore((s) => s.addCategory);
   const removeCategory = useFinanceStore((s) => s.removeCategory);
@@ -132,6 +136,8 @@ export default function PerfilScreen() {
   const [showBancoInput, setShowBancoInput] = useState(false);
   const [nombreEdit, setNombreEdit] = useState(profile.nombreUsuario || '');
   const [savingNombre, setSavingNombre] = useState(false);
+  const [budgetAmounts, setBudgetAmounts] = useState<Record<string, string>>({});
+  const [savingBudgets, setSavingBudgets] = useState(false);
 
   useEffect(() => {
     setTipoCambioDraft(String(profile.tipoDeCambio));
@@ -140,6 +146,38 @@ export default function PerfilScreen() {
   useEffect(() => {
     setNombreEdit(profile.nombreUsuario || '');
   }, [profile.nombreUsuario]);
+
+  useEffect(() => {
+    if (openSection !== 'presupuesto') return;
+    const mesActual = new Date().toISOString().slice(0, 7);
+    const fromStore: Record<string, string> = {};
+    budgets.forEach((b) => {
+      fromStore[b.categoria] = String(b.limiteMonthly);
+    });
+    setBudgetAmounts((prev) => ({ ...fromStore, ...prev }));
+
+    const uid = user?.id;
+    if (!uid) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { supabase } = await import('@/lib/supabase');
+      const { data } = await supabase
+        .from('budgets')
+        .select('categoria, limite')
+        .eq('user_id', uid)
+        .eq('mes', mesActual);
+      if (cancelled || !data) return;
+      const next: Record<string, string> = {};
+      data.forEach((row: { categoria: string; limite: number | string }) => {
+        next[row.categoria] = String(row.limite);
+      });
+      setBudgetAmounts((prev) => ({ ...prev, ...next }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openSection, user?.id, budgets]);
 
   const initial = useMemo(
     () => profile.nombreUsuario.trim().charAt(0).toUpperCase() || '?',
@@ -186,67 +224,67 @@ export default function PerfilScreen() {
     setShowMetodoInput(false);
   }, [newMetodo, addMetodoPago]);
 
-  const persistBancosDisponibles = useCallback(async (next: string[]) => {
-    try {
-      const userId = useAuthStore.getState().user?.id;
-      if (userId) {
-        await db.updateProfile(userId, { bancos_disponibles: next });
-      }
-      useFinanceStore.setState((s) => ({ profile: { ...s.profile, bancosDisponibles: next } }));
-    } catch (e) {
-      console.error('Error saving bancos:', e);
-    }
-  }, []);
-
   const handleAddBanco = useCallback(async () => {
     if (!newBanco.trim()) return;
-    const list = profile.bancosDisponibles?.length ? [...profile.bancosDisponibles] : [...DEFAULT_BANCOS_DISPONIBLES];
-    if (list.includes(newBanco.trim())) return;
-    const updated = [...list, newBanco.trim()];
+    await addBancoDisponible(newBanco.trim());
     setNewBanco('');
     setShowBancoInput(false);
-    await persistBancosDisponibles(updated);
-  }, [newBanco, profile.bancosDisponibles, persistBancosDisponibles]);
+  }, [newBanco, addBancoDisponible]);
 
   const handleRemoveBanco = useCallback(
     async (nombre: string) => {
-      const list = profile.bancosDisponibles?.length ? [...profile.bancosDisponibles] : [...DEFAULT_BANCOS_DISPONIBLES];
+      const list = profile.bancosDisponibles?.length ? profile.bancosDisponibles : DEFAULT_BANCOS_DISPONIBLES;
       if (list.length <= 1) {
         Alert.alert('No disponible', 'Debe existir al menos un banco.');
         return;
       }
-      await persistBancosDisponibles(list.filter((b) => b !== nombre));
+      await removeBancoDisponible(nombre);
     },
-    [profile.bancosDisponibles, persistBancosDisponibles],
+    [profile.bancosDisponibles, removeBancoDisponible],
   );
+
+  const handleGuardarPresupuestos = useCallback(async () => {
+    const uid = user?.id;
+    if (!uid) {
+      Alert.alert('Sin sesión', 'Iniciá sesión para guardar presupuestos.');
+      return;
+    }
+    setSavingBudgets(true);
+    try {
+      const mes = new Date().toISOString().slice(0, 7);
+      for (const [categoria, val] of Object.entries(budgetAmounts)) {
+        const n = parseFloat(String(val).replace(',', '.'));
+        if (!Number.isNaN(n) && n > 0) {
+          await db.upsertBudget(uid, categoria, n, mes);
+        }
+      }
+      await loadFromSupabase();
+      Alert.alert('Guardado', 'Presupuestos actualizados.');
+    } catch (e) {
+      console.error('Error guardando presupuestos:', e);
+      Alert.alert('Error', 'No se pudieron guardar los presupuestos.');
+    } finally {
+      setSavingBudgets(false);
+    }
+  }, [user?.id, budgetAmounts, loadFromSupabase]);
 
   const handleSaveNombre = async () => {
     if (!nombreEdit.trim()) return;
     setSavingNombre(true);
     try {
-      const { useAuthStore } = await import('@/store/useAuthStore');
       const userId = useAuthStore.getState().user?.id;
       if (userId) {
-        const db = await import('@/lib/database');
         await db.updateProfile(userId, { nombre_usuario: nombreEdit.trim() });
-        useFinanceStore.setState((state) => ({
-          profile: { ...state.profile, nombreUsuario: nombreEdit.trim() },
-        }));
       }
+      useFinanceStore.setState((state) => ({
+        profile: { ...state.profile, nombreUsuario: nombreEdit.trim() },
+      }));
     } catch (e) {
       console.error('Error saving nombre:', e);
     } finally {
       setSavingNombre(false);
     }
   };
-
-  const budgetByCat = useMemo(() => {
-    const map: Record<string, number> = {};
-    budgets.forEach((b) => {
-      map[b.categoria] = b.limiteMonthly;
-    });
-    return map;
-  }, [budgets]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
@@ -479,81 +517,6 @@ export default function PerfilScreen() {
                 fontSize: 15,
               }}
             />
-
-            <Text style={{ color: T.textSecondary, fontSize: 12, marginTop: 14, marginBottom: 6 }}>Bancos</Text>
-            <View style={{ gap: 10 }}>
-              {(profile.bancosDisponibles?.length ? profile.bancosDisponibles : DEFAULT_BANCOS_DISPONIBLES).map((b) => (
-                <View
-                  key={b}
-                  style={[
-                    {
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: 12,
-                      borderRadius: 12,
-                      backgroundColor: T.surface,
-                    },
-                  ]}>
-                  <Text style={[{ flex: 1, color: T.textPrimary, fontSize: 14 }]}>{b}</Text>
-                  <TouchableOpacity onPress={() => void handleRemoveBanco(b)}>
-                    <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {showBancoInput && (
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <TextInput
-                    style={[
-                      {
-                        flex: 1,
-                        height: 44,
-                        borderRadius: 10,
-                        paddingHorizontal: 12,
-                        fontSize: 14,
-                        backgroundColor: T.surface,
-                        color: T.textPrimary,
-                        borderWidth: 1,
-                        borderColor: T.glassBorder,
-                      },
-                    ]}
-                    placeholder="Nombre del banco"
-                    placeholderTextColor={T.textMuted}
-                    value={newBanco}
-                    onChangeText={setNewBanco}
-                  />
-                  <TouchableOpacity
-                    style={[
-                      {
-                        height: 44,
-                        paddingHorizontal: 16,
-                        borderRadius: 10,
-                        backgroundColor: T.primary,
-                        justifyContent: 'center',
-                      },
-                    ]}
-                    onPress={() => void handleAddBanco()}>
-                    <Text style={{ color: '#fff', fontWeight: '700' }}>OK</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-              <TouchableOpacity
-                style={[
-                  {
-                    height: 44,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: T.primary,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  },
-                ]}
-                onPress={() => setShowBancoInput(!showBancoInput)}>
-                <Text style={[{ color: T.primary, fontWeight: '600', fontSize: 14 }]}>
-                  {showBancoInput ? 'Cancelar' : '+ Agregar banco'}
-                </Text>
-              </TouchableOpacity>
-            </View>
           </AccordionSection>
 
           <AccordionSection
@@ -572,14 +535,35 @@ export default function PerfilScreen() {
                     {
                       flexDirection: 'row',
                       alignItems: 'center',
-                      gap: 12,
+                      gap: 10,
                       padding: 12,
                       borderRadius: 12,
                       backgroundColor: T.surface,
+                      borderWidth: 1,
+                      borderColor: T.glassBorder,
                     },
                   ]}>
                   <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
                   <Text style={[{ flex: 1, color: T.textPrimary, fontSize: 14 }]}>{cat.nombre}</Text>
+                  <TextInput
+                    value={budgetAmounts[cat.nombre] ?? ''}
+                    onChangeText={(val) => setBudgetAmounts((prev) => ({ ...prev, [cat.nombre]: val }))}
+                    placeholder="0"
+                    placeholderTextColor={T.textMuted}
+                    keyboardType="numeric"
+                    style={{
+                      width: 90,
+                      height: 40,
+                      borderRadius: 10,
+                      paddingHorizontal: 8,
+                      fontSize: 14,
+                      backgroundColor: T.surface,
+                      color: T.textPrimary,
+                      borderWidth: 1,
+                      borderColor: T.glassBorder,
+                      textAlign: 'center',
+                    }}
+                  />
                   <TouchableOpacity onPress={() => void removeCategory(cat.id)}>
                     <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
                   </TouchableOpacity>
@@ -636,6 +620,24 @@ export default function PerfilScreen() {
                 onPress={() => setShowCatInput(!showCatInput)}>
                 <Text style={[{ color: T.primary, fontWeight: '600', fontSize: 14 }]}>
                   {showCatInput ? 'Cancelar' : '+ Agregar categoría'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  {
+                    marginTop: 8,
+                    height: 48,
+                    borderRadius: 12,
+                    backgroundColor: T.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: savingBudgets ? 0.7 : 1,
+                  },
+                ]}
+                onPress={() => void handleGuardarPresupuestos()}
+                disabled={savingBudgets}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>
+                  {savingBudgets ? 'Guardando…' : 'Guardar presupuestos'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -724,6 +726,96 @@ export default function PerfilScreen() {
                 onPress={() => setShowMetodoInput(!showMetodoInput)}>
                 <Text style={[{ color: T.primary, fontWeight: '600', fontSize: 14 }]}>
                   {showMetodoInput ? 'Cancelar' : '+ Agregar método'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </AccordionSection>
+
+          <AccordionSection
+            title="Bancos"
+            icon="🏦"
+            expanded={openSection === 'bancos'}
+            onToggle={() => toggleSection('bancos')}>
+            <View style={{ gap: 10 }}>
+              {(profile.bancosDisponibles?.length ? profile.bancosDisponibles : DEFAULT_BANCOS_DISPONIBLES).map((b) => (
+                <View
+                  key={b}
+                  style={[
+                    {
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: 12,
+                      borderRadius: 12,
+                      backgroundColor: T.surface,
+                    },
+                  ]}>
+                  <Text style={[{ flex: 1, color: T.textPrimary, fontSize: 14 }]}>{b}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const list = profile.bancosDisponibles?.length
+                        ? profile.bancosDisponibles
+                        : DEFAULT_BANCOS_DISPONIBLES;
+                      if (list.length <= 1) {
+                        Alert.alert('No disponible', 'Debe existir al menos un banco.');
+                        return;
+                      }
+                      void handleRemoveBanco(b);
+                    }}>
+                    <Text style={{ color: '#FF4444', fontSize: 18 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {showBancoInput && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[
+                      {
+                        flex: 1,
+                        height: 44,
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        fontSize: 14,
+                        backgroundColor: T.surface,
+                        color: T.textPrimary,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                      },
+                    ]}
+                    placeholder="Nombre del banco"
+                    placeholderTextColor={T.textMuted}
+                    value={newBanco}
+                    onChangeText={setNewBanco}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      {
+                        height: 44,
+                        paddingHorizontal: 16,
+                        borderRadius: 10,
+                        backgroundColor: T.primary,
+                        justifyContent: 'center',
+                      },
+                    ]}
+                    onPress={() => void handleAddBanco()}>
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  {
+                    height: 44,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: T.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  },
+                ]}
+                onPress={() => setShowBancoInput(!showBancoInput)}>
+                <Text style={[{ color: T.primary, fontWeight: '600', fontSize: 14 }]}>
+                  {showBancoInput ? 'Cancelar' : '+ Agregar banco'}
                 </Text>
               </TouchableOpacity>
             </View>

@@ -30,7 +30,7 @@ export default function OnboardingScreen() {
   const { loadFromSupabase, loadCategories, profile } = useFinanceStore();
   const [step, setStep] = useState(0);
 
-  const [nombre, setNombre] = useState('');
+  const [nombreUsuario, setNombreUsuario] = useState('');
   const [moneda, setMoneda] = useState('PEN');
   const [tipoCambio, setTipoCambio] = useState('3.75');
   const [metodosSeleccionados, setMetodosSeleccionados] = useState<string[]>(() => {
@@ -97,7 +97,7 @@ export default function OnboardingScreen() {
     }
     try {
       await db.updateProfile(user.id, {
-        nombre_usuario: nombre || 'Usuario',
+        nombre_usuario: nombreUsuario.trim() || 'Usuario',
         moneda_principal: moneda,
         tipo_de_cambio: parseFloat(tipoCambio) || 3.75,
         metodos_de_pago: metodosSeleccionados,
@@ -105,10 +105,12 @@ export default function OnboardingScreen() {
         onboarding_done: true,
       });
 
+      await loadFromSupabase();
+
       useFinanceStore.setState((state) => ({
         profile: {
           ...state.profile,
-          nombreUsuario: nombre || 'Usuario',
+          nombreUsuario: nombreUsuario.trim() || 'Usuario',
           monedaPrincipal: moneda as MonedaCode,
           tipoDeCambio: parseFloat(tipoCambio) || 3.75,
           metodosDePago: metodosSeleccionados.map((n) => ({
@@ -234,8 +236,8 @@ export default function OnboardingScreen() {
                 style={[styles.input, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
                 placeholder="Tu nombre"
                 placeholderTextColor={T.textMuted}
-                value={nombre}
-                onChangeText={setNombre}
+                value={nombreUsuario}
+                onChangeText={setNombreUsuario}
               />
             </View>
             <View style={{ gap: 6 }}>

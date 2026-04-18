@@ -414,6 +414,8 @@ type FinanceState = {
   removeMetodoDePago: (id: string) => void;
   addMetodoPago: (metodo: string) => Promise<void>;
   removeMetodoPago: (metodo: string) => Promise<void>;
+  addBancoDisponible: (nombre: string) => Promise<void>;
+  removeBancoDisponible: (nombre: string) => Promise<void>;
   addFixedExpense: () => void;
   updateFixedExpense: (id: string, patch: Partial<Pick<FixedExpense, 'descripcion' | 'montoMensual'>>) => void;
   addCreditCard: () => void;
@@ -496,6 +498,8 @@ const seedState = (): Omit<
   | 'removeMetodoDePago'
   | 'addMetodoPago'
   | 'removeMetodoPago'
+  | 'addBancoDisponible'
+  | 'removeBancoDisponible'
   | 'addFixedExpense'
   | 'updateFixedExpense'
   | 'addCreditCard'
@@ -653,6 +657,24 @@ export const useFinanceStore = create<FinanceState>()(
         set({ profile: { ...get().profile, metodosDePago: nuevos } });
         const db = await import('@/lib/database');
         await db.updateProfile(userId, { metodos_de_pago: nuevos.map((m) => m.nombre) });
+      },
+
+      addBancoDisponible: async (nombre) => {
+        const { useAuthStore } = await import('./useAuthStore');
+        const userId = useAuthStore.getState().user?.id;
+        if (!userId) return;
+        const db = await import('@/lib/database');
+        const next = await db.addBancoDisponible(userId, nombre);
+        if (next) set({ profile: { ...get().profile, bancosDisponibles: next } });
+      },
+
+      removeBancoDisponible: async (nombre) => {
+        const { useAuthStore } = await import('./useAuthStore');
+        const userId = useAuthStore.getState().user?.id;
+        if (!userId) return;
+        const db = await import('@/lib/database');
+        const next = await db.removeBancoDisponible(userId, nombre);
+        if (next) set({ profile: { ...get().profile, bancosDisponibles: next } });
       },
 
       addFixedExpense: () => {

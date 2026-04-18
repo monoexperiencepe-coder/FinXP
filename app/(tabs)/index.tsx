@@ -208,7 +208,7 @@ export default function HomeScreen() {
               </View>
               <View>
                 <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 24 }}>
-                  ¡Hola, {profile.nombreUsuario}!
+                  {`¡Hola, ${profile.nombreUsuario || 'Usuario'}!`}
                 </Text>
                 <Text style={{ fontFamily: Font.manrope400, color: T.textSecondary, fontSize: 13, marginTop: 2 }}>
                   Tus finanzas de hoy

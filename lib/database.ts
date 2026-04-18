@@ -268,6 +268,30 @@ export async function updateProfile(userId: string, updates: UserProfileRowPatch
   if (error) throw error;
 }
 
+/** Añade un banco a `user_profiles.bancos_disponibles` y devuelve la lista resultante. */
+export async function addBancoDisponible(userId: string, nombre: string): Promise<string[] | null> {
+  const row = await getProfile(userId);
+  if (!row) return null;
+  const trimmed = nombre.trim();
+  if (!trimmed) return null;
+  const current = row.bancos_disponibles ?? [];
+  if (current.includes(trimmed)) return current;
+  const next = [...current, trimmed];
+  await updateProfile(userId, { bancos_disponibles: next });
+  return next;
+}
+
+/** Quita un banco; no permite dejar la lista vacía. Devuelve la nueva lista o null. */
+export async function removeBancoDisponible(userId: string, nombre: string): Promise<string[] | null> {
+  const row = await getProfile(userId);
+  if (!row) return null;
+  const current = row.bancos_disponibles ?? [];
+  const next = current.filter((b) => b !== nombre);
+  if (next.length === 0 || next.length === current.length) return null;
+  await updateProfile(userId, { bancos_disponibles: next });
+  return next;
+}
+
 export async function markOnboardingDone(userId: string) {
   const { error } = await supabase
     .from('user_profiles')
