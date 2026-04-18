@@ -134,7 +134,7 @@ export default function PerfilScreen() {
   const [showCatInput, setShowCatInput] = useState(false);
   const [newBanco, setNewBanco] = useState('');
   const [showBancoInput, setShowBancoInput] = useState(false);
-  const [nombreEdit, setNombreEdit] = useState(profile.nombreUsuario || '');
+  const [nombreInput, setNombreInput] = useState(profile.nombreUsuario || '');
   const [savingNombre, setSavingNombre] = useState(false);
   const [budgetAmounts, setBudgetAmounts] = useState<Record<string, string>>({});
   const [savingBudgets, setSavingBudgets] = useState(false);
@@ -144,7 +144,9 @@ export default function PerfilScreen() {
   }, [profile.tipoDeCambio]);
 
   useEffect(() => {
-    setNombreEdit(profile.nombreUsuario || '');
+    if (profile.nombreUsuario) {
+      setNombreInput(profile.nombreUsuario);
+    }
   }, [profile.nombreUsuario]);
 
   useEffect(() => {
@@ -180,7 +182,7 @@ export default function PerfilScreen() {
   }, [openSection, user?.id, budgets]);
 
   const initial = useMemo(
-    () => profile.nombreUsuario.trim().charAt(0).toUpperCase() || '?',
+    () => (profile.nombreUsuario || 'U').trim().charAt(0).toUpperCase() || '?',
     [profile.nombreUsuario],
   );
 
@@ -269,15 +271,15 @@ export default function PerfilScreen() {
   }, [user?.id, budgetAmounts, loadFromSupabase]);
 
   const handleSaveNombre = async () => {
-    if (!nombreEdit.trim()) return;
+    if (!nombreInput.trim()) return;
     setSavingNombre(true);
     try {
       const userId = useAuthStore.getState().user?.id;
       if (userId) {
-        await db.updateProfile(userId, { nombre_usuario: nombreEdit.trim() });
+        await db.updateProfile(userId, { nombre_usuario: nombreInput.trim() });
       }
-      useFinanceStore.setState((state) => ({
-        profile: { ...state.profile, nombreUsuario: nombreEdit.trim() },
+      useFinanceStore.setState((s) => ({
+        profile: { ...s.profile, nombreUsuario: nombreInput.trim() },
       }));
     } catch (e) {
       console.error('Error saving nombre:', e);
@@ -434,8 +436,8 @@ export default function PerfilScreen() {
                       borderColor: T.glassBorder,
                     },
                   ]}
-                  value={nombreEdit}
-                  onChangeText={setNombreEdit}
+                  value={nombreInput}
+                  onChangeText={setNombreInput}
                   placeholder="Tu nombre"
                   placeholderTextColor={T.textMuted}
                 />

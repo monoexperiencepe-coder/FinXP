@@ -404,6 +404,7 @@ type FinanceState = {
   theme: 'dark' | 'light';
 
   ensureWeeklyMissions: () => void;
+  setTheme: (mode: 'dark' | 'light') => void;
   toggleTheme: () => void;
   setNombreUsuario: (nombreUsuario: string) => void;
   setMonedaPrincipal: (moneda: MonedaCode) => void;
@@ -489,6 +490,7 @@ const initialYm = currentYearMonth();
 const seedState = (): Omit<
   FinanceState,
   | 'ensureWeeklyMissions'
+  | 'setTheme'
   | 'setNombreUsuario'
   | 'setMonedaPrincipal'
   | 'setTipoDeCambio'
@@ -560,8 +562,23 @@ export const useFinanceStore = create<FinanceState>()(
       loadingCategories: false,
       categories: [],
 
+      setTheme: (mode) => {
+        set({ theme: mode });
+        void AsyncStorage.setItem('finxp_dark_mode', mode === 'dark' ? 'true' : 'false');
+        void (async () => {
+          const userId = useAuthStore.getState().user?.id;
+          if (!userId) return;
+          try {
+            await db.updateProfile(userId, { theme: mode });
+          } catch (e) {
+            console.error('Error guardando tema:', e);
+          }
+        })();
+      },
+
       toggleTheme: () => {
-        set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' }));
+        const next = get().theme === 'dark' ? 'light' : 'dark';
+        get().setTheme(next);
       },
 
       ensureWeeklyMissions: () => {
@@ -900,7 +917,11 @@ export const useFinanceStore = create<FinanceState>()(
           const profile: UserProfile = profileRow
             ? {
                 id: userId,
-                nombreUsuario: profileRow.nombre_usuario ?? prev.profile.nombreUsuario,
+                nombreUsuario: (() => {
+                  const n = profileRow.nombre_usuario;
+                  if (n != null && String(n).trim() !== '') return String(n).trim();
+                  return prev.profile.nombreUsuario;
+                })(),
                 nivel: profileRow.nivel ?? 1,
                 xpActual: profileRow.xp_actual ?? 0,
                 xpParaSiguienteNivel: profileRow.xp_para_siguiente_nivel ?? 100,

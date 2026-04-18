@@ -96,8 +96,9 @@ export default function OnboardingScreen() {
       return;
     }
     try {
+      const nombreGuardado = nombreUsuario.trim() || 'Usuario';
       await db.updateProfile(user.id, {
-        nombre_usuario: nombreUsuario.trim() || 'Usuario',
+        nombre_usuario: nombreGuardado,
         moneda_principal: moneda,
         tipo_de_cambio: parseFloat(tipoCambio) || 3.75,
         metodos_de_pago: metodosSeleccionados,
@@ -110,7 +111,7 @@ export default function OnboardingScreen() {
       useFinanceStore.setState((state) => ({
         profile: {
           ...state.profile,
-          nombreUsuario: nombreUsuario.trim() || 'Usuario',
+          nombreUsuario: nombreGuardado,
           monedaPrincipal: moneda as MonedaCode,
           tipoDeCambio: parseFloat(tipoCambio) || 3.75,
           metodosDePago: metodosSeleccionados.map((n) => ({

@@ -73,6 +73,17 @@ export default function RootLayout() {
   }, [error]);
 
   useEffect(() => {
+    void (async () => {
+      const savedMode = await AsyncStorage.getItem('finxp_dark_mode');
+      if (savedMode === 'true') {
+        useFinanceStore.setState({ theme: 'dark' });
+      } else if (savedMode === 'false') {
+        useFinanceStore.setState({ theme: 'light' });
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     const initAuth = async () => {
       await useAuthStore.getState().initialize();
 

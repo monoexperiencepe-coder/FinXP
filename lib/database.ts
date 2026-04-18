@@ -258,6 +258,7 @@ export type ExpenseDbRow = Parameters<typeof rowToExpense>[0];
 export type IncomeDbRow = Parameters<typeof rowToIncome>[0];
 
 export async function getProfile(userId: string): Promise<UserProfileRow | null> {
+  // select('*') incluye nombre_usuario y el resto de columnas de user_profiles
   const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).maybeSingle();
   if (error) throw error;
   return data as UserProfileRow | null;
