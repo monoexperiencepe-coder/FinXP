@@ -4,7 +4,6 @@ import {
   Animated,
   Pressable,
   ScrollView,
-  StyleSheet,
   Switch,
   Text,
   TextInput,
@@ -18,7 +17,6 @@ import { Font } from '@/constants/typography';
 import { avatarRingBorder, logoutRowStyle, onPrimaryGradient } from '@/constants/theme';
 import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
-import { formatMoney } from '@/lib/currency';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_METODOS_DE_PAGO } from '@/types';
@@ -111,14 +109,11 @@ export default function PerfilScreen() {
   const { signOut } = useAuthStore();
   const profile = useFinanceStore((s) => s.profile);
   const missions = useFinanceStore((s) => s.missions);
-  const fixedExpenses = useFinanceStore((s) => s.fixedExpenses);
   const budgets = useFinanceStore((s) => s.budgets);
   const categories = useFinanceStore((s) => s.categories);
 
   const setMonedaPrincipal = useFinanceStore((s) => s.setMonedaPrincipal);
   const setTipoDeCambio = useFinanceStore((s) => s.setTipoDeCambio);
-  const addFixedExpense = useFinanceStore((s) => s.addFixedExpense);
-  const updateFixedExpense = useFinanceStore((s) => s.updateFixedExpense);
   const setBudgetCategoryLimit = useFinanceStore((s) => s.setBudgetCategoryLimit);
   const addMetodoPago = useFinanceStore((s) => s.addMetodoPago);
   const removeMetodoPago = useFinanceStore((s) => s.removeMetodoPago);
@@ -132,10 +127,16 @@ export default function PerfilScreen() {
   const [showMetodoInput, setShowMetodoInput] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [showCatInput, setShowCatInput] = useState(false);
+  const [nombreEdit, setNombreEdit] = useState(profile.nombreUsuario || '');
+  const [savingNombre, setSavingNombre] = useState(false);
 
   useEffect(() => {
     setTipoCambioDraft(String(profile.tipoDeCambio));
   }, [profile.tipoDeCambio]);
+
+  useEffect(() => {
+    setNombreEdit(profile.nombreUsuario || '');
+  }, [profile.nombreUsuario]);
 
   const initial = useMemo(
     () => profile.nombreUsuario.trim().charAt(0).toUpperCase() || '?',
@@ -146,11 +147,6 @@ export default function PerfilScreen() {
   const xpTotalDisplay = useMemo(
     () => profile.xpActual + misionesCompletadas * 30,
     [misionesCompletadas, profile.xpActual],
-  );
-
-  const totalFijos = useMemo(
-    () => fixedExpenses.reduce((s, f) => s + f.montoMensual, 0),
-    [fixedExpenses],
   );
 
   const toggleSection = useCallback((id: string) => {
@@ -186,6 +182,26 @@ export default function PerfilScreen() {
     setNewMetodo('');
     setShowMetodoInput(false);
   }, [newMetodo, addMetodoPago]);
+
+  const handleSaveNombre = async () => {
+    if (!nombreEdit.trim()) return;
+    setSavingNombre(true);
+    try {
+      const { useAuthStore } = await import('@/store/useAuthStore');
+      const userId = useAuthStore.getState().user?.id;
+      if (userId) {
+        const db = await import('@/lib/database');
+        await db.updateProfile(userId, { nombre_usuario: nombreEdit.trim() });
+        useFinanceStore.setState((state) => ({
+          profile: { ...state.profile, nombreUsuario: nombreEdit.trim() },
+        }));
+      }
+    } catch (e) {
+      console.error('Error saving nombre:', e);
+    } finally {
+      setSavingNombre(false);
+    }
+  };
 
   const budgetByCat = useMemo(() => {
     const map: Record<string, number> = {};
@@ -326,9 +342,45 @@ export default function PerfilScreen() {
             icon="⚙️"
             expanded={openSection === 'cuenta'}
             onToggle={() => toggleSection('cuenta')}>
-            <Text style={{ color: T.textSecondary, fontSize: 12, marginBottom: 6 }}>Mi nombre</Text>
-            <View style={[styles.inputDisplay, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
-              <Text style={{ color: T.textPrimary, fontSize: 15 }}>{profile.nombreUsuario || 'Usuario'}</Text>
+            <View style={{ gap: 6 }}>
+              <Text style={[{ color: T.textSecondary, fontSize: 13 }]}>Mi nombre</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  style={[
+                    {
+                      flex: 1,
+                      height: 52,
+                      borderRadius: 12,
+                      paddingHorizontal: 16,
+                      fontSize: 15,
+                      backgroundColor: T.surface,
+                      color: T.textPrimary,
+                      borderWidth: 1,
+                      borderColor: T.glassBorder,
+                    },
+                  ]}
+                  value={nombreEdit}
+                  onChangeText={setNombreEdit}
+                  placeholder="Tu nombre"
+                  placeholderTextColor={T.textMuted}
+                />
+                <TouchableOpacity
+                  style={[
+                    {
+                      height: 52,
+                      paddingHorizontal: 16,
+                      borderRadius: 12,
+                      backgroundColor: T.primary,
+                      justifyContent: 'center',
+                    },
+                  ]}
+                  onPress={() => void handleSaveNombre()}
+                  disabled={savingNombre}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>
+                    {savingNombre ? '...' : 'Guardar'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View
@@ -390,67 +442,6 @@ export default function PerfilScreen() {
                 fontSize: 15,
               }}
             />
-          </AccordionSection>
-
-          <AccordionSection
-            title="Gastos Fijos"
-            icon="🏠"
-            expanded={openSection === 'fijos'}
-            onToggle={() => toggleSection('fijos')}>
-            {fixedExpenses.map((f) => (
-              <View
-                key={f.id}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingVertical: 10,
-                  marginBottom: 8,
-                  gap: 8,
-                }}>
-                <TextInput
-                  value={f.descripcion}
-                  onChangeText={(t) => updateFixedExpense(f.id, { descripcion: t })}
-                  style={{ flex: 1, color: T.textPrimary, fontSize: 14 }}
-                />
-                <TextInput
-                  value={f.montoMensual === 0 ? '' : String(f.montoMensual)}
-                  onChangeText={(t) => {
-                    const n = Number(t.replace(',', '.'));
-                    if (t === '' || Number.isNaN(n)) updateFixedExpense(f.id, { montoMensual: 0 });
-                    else updateFixedExpense(f.id, { montoMensual: n });
-                  }}
-                  keyboardType="decimal-pad"
-                  style={{
-                    width: 88,
-                    textAlign: 'right',
-                    color: T.textMuted,
-                    fontSize: 14,
-                    borderWidth: 1,
-                    borderColor: T.glassBorder,
-                    borderRadius: 8,
-                    paddingVertical: 6,
-                    paddingHorizontal: 8,
-                  }}
-                />
-              </View>
-            ))}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 8 }}>
-              <Text style={{ color: T.textSecondary, fontSize: 13 }}>Total mensual</Text>
-              <Text style={{ color: T.textPrimary, fontWeight: '700' }}>{formatMoney(totalFijos, profile.monedaPrincipal)}</Text>
-            </View>
-            <Pressable
-              onPress={addFixedExpense}
-              style={{
-                marginTop: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: T.primary,
-                paddingVertical: 12,
-                alignItems: 'center',
-              }}>
-              <Text style={{ color: T.primary, fontWeight: '700' }}>+ Agregar gasto fijo</Text>
-            </Pressable>
           </AccordionSection>
 
           <AccordionSection
@@ -668,13 +659,3 @@ export default function PerfilScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  inputDisplay: {
-    height: 52,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    justifyContent: 'center',
-  },
-});
