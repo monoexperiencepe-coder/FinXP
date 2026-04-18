@@ -218,6 +218,7 @@ export function moodAggregates(
   for (const e of expenses) {
     if (e.mes !== ym) continue;
     const m = e.estadoDeAnimo;
+    if (m == null) continue;
     if (!groups[m]) groups[m] = { totals: 0, count: 0, cats: {}, esencial: 0, noEsencial: 0 };
     const v = convertAmount(e.importe, e.moneda, display, rate);
     groups[m].totals += v;

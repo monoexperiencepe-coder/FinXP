@@ -20,7 +20,7 @@ export interface Expense {
   categoria: string; // ExpenseCategoryId
   comercio: string;
   esEsencial: boolean;
-  estadoDeAnimo: EstadoDeAnimo;
+  estadoDeAnimo: EstadoDeAnimo | null;
   moneda: MonedaCode;
   descripcion: string;
   importe: number;

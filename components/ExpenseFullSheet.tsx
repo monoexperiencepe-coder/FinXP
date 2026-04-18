@@ -32,7 +32,6 @@ import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
-import { ESTADOS_DE_ANIMO, MOOD_EMOJI, moodLabel } from '@/lib/mood';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { EstadoDeAnimo, MonedaCode } from '@/types';
 import { DEFAULT_METODOS_DE_PAGO } from '@/types';
@@ -42,6 +41,17 @@ const SPRING_OPEN = { damping: 26, stiffness: 280 } as const;
 const SPRING_CLOSE = { damping: 28, stiffness: 260 } as const;
 
 const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Diners Club', 'CMR', 'PayPal', 'Otro'] as const;
+
+const EMOCIONES: { key: EstadoDeAnimo | null; label: string; emoji: string }[] = [
+  { key: null, label: 'Ninguno', emoji: '⬜' },
+  { key: 'CONTENTO', label: 'Contento', emoji: '😊' },
+  { key: 'NEUTRAL', label: 'Neutral', emoji: '😐' },
+  { key: 'PREOCUPADO', label: 'Preocupado', emoji: '😟' },
+  { key: 'MOLESTO', label: 'Molesto', emoji: '😠' },
+  { key: 'TRISTE', label: 'Triste', emoji: '😢' },
+  { key: 'ANSIOSO', label: 'Ansioso', emoji: '😰' },
+  { key: 'ESTRESADO', label: 'Estresado', emoji: '🤯' },
+];
 
 const styles = StyleSheet.create({
   sectionLabel: {
@@ -122,11 +132,17 @@ function CategoryCell({
             justifyContent: 'center',
           },
         ]}>
-        <Text className="text-center text-2xl">{emoji}</Text>
+        <Text style={{ textAlign: 'center', fontSize: 24 }}>{emoji}</Text>
         <Text
-          className="mt-1 text-center leading-3 text-text"
           numberOfLines={2}
-          style={{ fontFamily: Font.manrope500, fontSize: 11 }}>
+          style={{
+            fontFamily: Font.manrope500,
+            fontSize: 11,
+            marginTop: 4,
+            textAlign: 'center',
+            lineHeight: 14,
+            color: T.textSecondary,
+          }}>
           {name}
         </Text>
       </AnimatedRN.View>
@@ -135,13 +151,15 @@ function CategoryCell({
 }
 
 function MoodCell({
-  mood,
+  emoji,
+  label,
   selected,
   onSelect,
 }: {
-  mood: EstadoDeAnimo;
+  emoji: string;
+  label: string;
   selected: boolean;
-  onSelect: (m: EstadoDeAnimo) => void;
+  onSelect: () => void;
 }) {
   const { T } = useTheme();
   const scale = useSharedValue(1);
@@ -150,7 +168,7 @@ function MoodCell({
   }, [scale, selected]);
   const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
-    <Pressable style={{ width: '25%', padding: 4 }} onPress={() => onSelect(mood)}>
+    <Pressable style={{ width: '25%', padding: 4 }} onPress={onSelect}>
       <AnimatedRN.View
         style={[
           anim,
@@ -163,9 +181,17 @@ function MoodCell({
             alignItems: 'center',
           },
         ]}>
-        <Text className="text-2xl">{MOOD_EMOJI[mood]}</Text>
-        <Text className="mt-1 px-0.5 text-center text-[9px] text-text-secondary" numberOfLines={2}>
-          {moodLabel(mood)}
+        <Text style={{ fontSize: 24 }}>{emoji}</Text>
+        <Text
+          numberOfLines={2}
+          style={{
+            marginTop: 4,
+            paddingHorizontal: 2,
+            textAlign: 'center',
+            fontSize: 9,
+            color: T.textSecondary,
+          }}>
+          {label}
         </Text>
       </AnimatedRN.View>
     </Pressable>
@@ -199,7 +225,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [amountFocused, setAmountFocused] = useState(false);
   const [moneda, setMoneda] = useState<MonedaCode>(profile.monedaPrincipal);
   const [categoria, setCategoria] = useState<string>(categories[0]?.nombre ?? '');
-  const [mood, setMood] = useState<EstadoDeAnimo>('NEUTRAL');
+  const [mood, setMood] = useState<EstadoDeAnimo | null>(null);
   const mediosNombres = useMemo(() => {
     const list = (profile.metodosDePago ?? []).map((m) => m.nombre);
     return list.length > 0 ? list : DEFAULT_METODOS_DE_PAGO.map((m) => m.nombre);
@@ -251,7 +277,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     if (!becameOpen) return;
     setMoneda(profile.monedaPrincipal);
     setCategoria(categories[0]?.nombre ?? '');
-    setMood('NEUTRAL');
+    setMood(null);
     setMedio(mediosNombres[0] ?? 'Efectivo');
     setBanco(BANCOS[0]);
     setNota('');
@@ -347,15 +373,6 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
       flashError('category');
       return;
     }
-    if (!mood) {
-      if (Platform.OS !== 'web') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
-      moodShake.trigger();
-      flashError('mood');
-      return;
-    }
-
     if (Platform.OS !== 'web') {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
@@ -477,12 +494,12 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                         background: 'transparent',
                         border: 'none',
                         outline: 'none',
-                        color: 'white',
+                        color: T.textPrimary,
                         fontSize: 15,
                         paddingLeft: 16,
                         paddingRight: 16,
                         cursor: 'pointer',
-                        colorScheme: 'dark',
+                        colorScheme: isDark ? 'dark' : 'light',
                       } as any
                     }
                   />
@@ -542,7 +559,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                 style={{
                   borderColor: fieldError === 'amount' ? T.error : amountFocused ? T.primary : T.glassBorder,
                 }}>
-                <Text className="mr-1 text-[28px] font-semibold text-text">{symbol}</Text>
+                <Text style={{ marginRight: 4, fontSize: 28, fontWeight: '600', color: T.textPrimary }}>{symbol}</Text>
                 <TextInput
                   ref={amountRef}
                   value={amount}
@@ -552,8 +569,8 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                   placeholder="0.00"
                   placeholderTextColor={T.textMuted}
                   keyboardType="numeric"
-                  className="min-w-[100px] flex-1 text-center text-[28px] font-semibold text-text"
-                  style={{ fontSize: 28, paddingVertical: 4 }}
+                  className="min-w-[100px] flex-1 text-center text-[28px] font-semibold"
+                  style={{ fontSize: 28, paddingVertical: 4, color: T.textPrimary, fontWeight: '600' }}
                 />
               </Pressable>
             </AnimatedRN.View>
@@ -623,17 +640,17 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
 
             <View style={{ height: SECTION }} />
 
-            <Text className="mb-2 text-base font-medium text-text">¿Cómo te sientes?</Text>
-            <AnimatedRN.View
-              style={[
-                moodShake.style,
-                fieldError === 'mood'
-                  ? { borderWidth: 2, borderColor: T.error, borderRadius: 12, padding: 4 }
-                  : undefined,
-              ]}>
+            <Text style={[styles.sectionLabel, { color: T.textMuted, marginBottom: 8 }]}>¿CÓMO TE SIENTES?</Text>
+            <AnimatedRN.View style={moodShake.style}>
               <View className="flex-row flex-wrap">
-                {ESTADOS_DE_ANIMO.map((m) => (
-                  <MoodCell key={m} mood={m} selected={mood === m} onSelect={setMood} />
+                {EMOCIONES.map((item) => (
+                  <MoodCell
+                    key={String(item.key)}
+                    emoji={item.emoji}
+                    label={item.label}
+                    selected={mood === item.key}
+                    onSelect={() => setMood(item.key)}
+                  />
                 ))}
               </View>
             </AnimatedRN.View>
@@ -685,8 +702,8 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
             <Pressable
               onPress={() => setBancoMenu(true)}
               className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
-              <Text className="text-base text-text">{banco}</Text>
-              <Text className="text-muted">▾</Text>
+              <Text style={{ fontSize: 16, color: T.textPrimary }}>{banco}</Text>
+              <Text style={{ color: T.textMuted }}>▾</Text>
             </Pressable>
 
             <View style={{ height: SECTION }} />
@@ -702,7 +719,8 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               placeholder="Añade un detalle..."
               placeholderTextColor={T.textMuted}
               multiline
-              className="min-h-[88px] rounded-xl border border-border bg-bg px-4 py-3 text-base text-text"
+              className="min-h-[88px] rounded-xl border border-border bg-bg px-4 py-3 text-base"
+              style={{ color: T.textPrimary }}
               textAlignVertical="top"
             />
 
@@ -712,7 +730,9 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               onPress={onVoicePress}
               className="items-center rounded-xl border border-border bg-bg py-3 opacity-40 active:opacity-50">
               <Text className="text-xl">🎙️</Text>
-              <Text className="mt-1 text-center text-xs text-text">Registro por voz — Próximamente</Text>
+              <Text style={{ marginTop: 4, textAlign: 'center', fontSize: 12, color: T.textSecondary }}>
+                Registro por voz — Próximamente
+              </Text>
             </Pressable>
 
             <View style={{ height: 16 }} />
@@ -774,7 +794,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                         setBancoMenu(false);
                       }}
                       className="border-b border-border py-3 pl-3 active:bg-card">
-                      <Text className="text-base text-text">{item}</Text>
+                      <Text style={{ fontSize: 16, color: T.textPrimary }}>{item}</Text>
                     </Pressable>
                   )}
                 />

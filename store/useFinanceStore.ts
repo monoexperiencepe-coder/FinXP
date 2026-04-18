@@ -420,7 +420,7 @@ type FinanceState = {
   addQuickExpense: (input: {
     categoria: string;
     importe: number;
-    estadoDeAnimo: EstadoDeAnimo;
+    estadoDeAnimo: EstadoDeAnimo | null;
     descripcion?: string;
     comercio?: string;
     esEsencial?: boolean;
@@ -458,7 +458,7 @@ type FinanceState = {
   addExpenseToSupabase: (input: {
     categoria: string;
     importe: number;
-    estadoDeAnimo: EstadoDeAnimo;
+    estadoDeAnimo: EstadoDeAnimo | null;
     descripcion?: string;
     comercio?: string;
     fecha?: string;

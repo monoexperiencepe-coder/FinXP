@@ -298,7 +298,9 @@ export default function GastosScreen() {
           <Text style={{ fontFamily: Font.jakarta700, fontSize: 16, color: amountColor }}>
             {formatMoney(item.importe, item.moneda)}
           </Text>
-          <Text style={{ marginTop: 4, fontSize: 18 }}>{MOOD_EMOJI[item.estadoDeAnimo]}</Text>
+          <Text style={{ marginTop: 4, fontSize: 18 }}>
+            {item.estadoDeAnimo ? MOOD_EMOJI[item.estadoDeAnimo] : '⬜'}
+          </Text>
         </View>
       </View>
     );

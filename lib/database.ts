@@ -3,6 +3,7 @@ import { ESTADOS_DE_ANIMO } from '@/lib/mood';
 import type {
   Budget,
   CreditCard,
+  EstadoDeAnimo,
   Expense,
   FixedExpense,
   Income,
@@ -78,8 +79,9 @@ const MISSION_TIPOS: MissionTipo[] = [
 ];
 
 function mapEstadoDeAnimo(v: string | null | undefined): Expense['estadoDeAnimo'] {
-  if (v && ESTADOS_DE_ANIMO.includes(v as Expense['estadoDeAnimo'])) return v as Expense['estadoDeAnimo'];
-  return 'NEUTRAL';
+  if (!v) return null;
+  if (ESTADOS_DE_ANIMO.includes(v as EstadoDeAnimo)) return v as EstadoDeAnimo;
+  return null;
 }
 
 function mapIncomeTipo(v: string | null | undefined): IncomeTipo {
