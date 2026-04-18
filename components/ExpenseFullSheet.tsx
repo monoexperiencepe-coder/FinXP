@@ -1,6 +1,6 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -34,13 +34,11 @@ import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { EstadoDeAnimo, MonedaCode } from '@/types';
-import { DEFAULT_METODOS_DE_PAGO } from '@/types';
+import { DEFAULT_BANCOS_DISPONIBLES, DEFAULT_METODOS_DE_PAGO } from '@/types';
 
 const SECTION = 24;
 const SPRING_OPEN = { damping: 26, stiffness: 280 } as const;
 const SPRING_CLOSE = { damping: 28, stiffness: 260 } as const;
-
-const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Diners Club', 'CMR', 'PayPal', 'Otro'] as const;
 
 const EMOCIONES: { key: EstadoDeAnimo | null; label: string; emoji: string }[] = [
   { key: null, label: 'Ninguno', emoji: '⬜' },
@@ -230,8 +228,12 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     const list = (profile.metodosDePago ?? []).map((m) => m.nombre);
     return list.length > 0 ? list : DEFAULT_METODOS_DE_PAGO.map((m) => m.nombre);
   }, [profile.metodosDePago]);
+  const bancosLista = useMemo(() => {
+    const list = profile.bancosDisponibles;
+    return list?.length ? list : DEFAULT_BANCOS_DISPONIBLES;
+  }, [profile.bancosDisponibles]);
   const [medio, setMedio] = useState<string>(() => mediosNombres[0] ?? 'Efectivo');
-  const [banco, setBanco] = useState<string>(BANCOS[0]);
+  const [banco, setBanco] = useState<string>(() => DEFAULT_BANCOS_DISPONIBLES[0] ?? 'BCP');
   const [bancoMenu, setBancoMenu] = useState(false);
   const [nota, setNota] = useState('');
 
@@ -279,13 +281,13 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     setCategoria(categories[0]?.nombre ?? '');
     setMood(null);
     setMedio(mediosNombres[0] ?? 'Efectivo');
-    setBanco(BANCOS[0]);
+    setBanco(bancosLista[0] ?? DEFAULT_BANCOS_DISPONIBLES[0] ?? 'BCP');
     setNota('');
     setAmount('');
     setFecha(new Date().toISOString().split('T')[0]);
     setFieldError(null);
     requestAnimationFrame(() => openSheet());
-  }, [open, openSheet, profile.monedaPrincipal, categories, mediosNombres]);
+  }, [open, openSheet, profile.monedaPrincipal, categories, mediosNombres, bancosLista]);
 
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -699,12 +701,37 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                 fontSize: 11,
                 letterSpacing: 2,
                 marginBottom: 8 }}>BANCO</Text>
-            <Pressable
-              onPress={() => setBancoMenu(true)}
-              className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
-              <Text style={{ fontSize: 16, color: T.textPrimary }}>{banco}</Text>
-              <Text style={{ color: T.textMuted }}>▾</Text>
-            </Pressable>
+            {Platform.OS === 'web'
+              ? createElement(
+                  'select',
+                  {
+                    value: banco,
+                    onChange: (e: { target: { value: string } }) => setBanco(e.target.value),
+                    style: {
+                      width: '100%',
+                      height: 52,
+                      background: '#0F1029',
+                      border: '1px solid rgba(124,58,237,0.2)',
+                      borderRadius: 12,
+                      color: 'white',
+                      fontSize: 15,
+                      paddingLeft: 16,
+                      paddingRight: 16,
+                      cursor: 'pointer',
+                      colorScheme: 'dark',
+                      outline: 'none',
+                    } as any,
+                  },
+                  bancosLista.map((b) => createElement('option', { key: b, value: b }, b)),
+                )
+              : (
+                  <Pressable
+                    onPress={() => setBancoMenu(true)}
+                    className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
+                    <Text style={{ fontSize: 16, color: T.textPrimary }}>{banco}</Text>
+                    <Text style={{ color: T.textMuted }}>▾</Text>
+                  </Pressable>
+                )}
 
             <View style={{ height: SECTION }} />
 
@@ -785,7 +812,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                 className="mx-4 mb-8 rounded-2xl border border-border bg-bg p-2"
                 onPress={(e) => e.stopPropagation()}>
                 <FlatList
-                  data={[...BANCOS]}
+                  data={[...bancosLista]}
                   keyExtractor={(item) => item}
                   renderItem={({ item }) => (
                     <Pressable

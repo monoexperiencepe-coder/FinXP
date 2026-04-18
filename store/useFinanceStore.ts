@@ -26,6 +26,7 @@ import {
   type MetodoDePagoItem,
   type Mission,
   type MonedaCode,
+  DEFAULT_BANCOS_DISPONIBLES,
   type UserProfile,
 } from '@/types';
 
@@ -47,6 +48,7 @@ const defaultProfile: UserProfile = {
   tipoDeCambio: 3.75,
   misionesCompletadas: 2,
   metodosDePago: DEFAULT_METODOS_DE_PAGO,
+  bancosDisponibles: [...DEFAULT_BANCOS_DISPONIBLES],
 };
 
 function mockExpenses(now: Date): Expense[] {
@@ -890,6 +892,9 @@ export const useFinanceStore = create<FinanceState>()(
                 misionesCompletadas: profileRow.misiones_completadas ?? 0,
                 metaMensual: budgets.reduce((s, b) => s + b.limiteMonthly, 0) || prev.profile.metaMensual,
                 metodosDePago: db.metodosDePagoFromDb(profileRow.metodos_de_pago ?? undefined),
+                bancosDisponibles: profileRow.bancos_disponibles?.length
+                  ? profileRow.bancos_disponibles
+                  : [...DEFAULT_BANCOS_DISPONIBLES],
               }
             : { ...prev.profile, id: userId };
 

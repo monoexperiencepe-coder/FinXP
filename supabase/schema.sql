@@ -16,6 +16,7 @@ CREATE TABLE user_profiles (
   misiones_completadas INTEGER NOT NULL DEFAULT 0,
   theme TEXT NOT NULL DEFAULT 'dark',
   metodos_de_pago TEXT[] DEFAULT ARRAY['Efectivo', 'Tarjeta Débito', 'Tarjeta Crédito', 'Yape', 'Plin'],
+  bancos_disponibles TEXT[] DEFAULT ARRAY['BCP', 'Scotiabank', 'Interbank', 'BBVA', 'Banco Pichincha', 'BanBif', 'Mibanco'],
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -182,3 +183,6 @@ CREATE TRIGGER update_expenses_updated_at
   BEFORE UPDATE ON expenses
   FOR EACH ROW
   EXECUTE FUNCTION public.update_updated_at();
+
+-- BBDD ya creadas: añadir bancos si falta la columna
+-- ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS bancos_disponibles TEXT[] DEFAULT ARRAY['BCP', 'Scotiabank', 'Interbank', 'BBVA', 'Banco Pichincha', 'BanBif', 'Mibanco'];

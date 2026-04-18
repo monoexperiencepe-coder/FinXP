@@ -100,6 +100,17 @@ export const DEFAULT_METODOS_DE_PAGO: MetodoDePagoItem[] = [
   { id: 'mdp-efectivo', nombre: 'Efectivo', activo: true },
 ];
 
+/** Bancos disponibles para registrar gastos (perfil y selector). */
+export const DEFAULT_BANCOS_DISPONIBLES: string[] = [
+  'BCP',
+  'Scotiabank',
+  'Interbank',
+  'BBVA',
+  'Banco Pichincha',
+  'BanBif',
+  'Mibanco',
+];
+
 export interface UserProfile {
   id: string;
   nombreUsuario: string;
@@ -118,6 +129,8 @@ export interface UserProfile {
   metaMensual?: number;
   /** Métodos de pago del usuario (p. ej. Crédito, Débito, Efectivo). */
   metodosDePago?: MetodoDePagoItem[];
+  /** Bancos disponibles al registrar gastos. */
+  bancosDisponibles: string[];
 }
 
 export type MissionTipo =

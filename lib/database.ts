@@ -13,7 +13,7 @@ import type {
   MissionTipo,
   MonedaCode,
 } from '@/types';
-import { DEFAULT_METODOS_DE_PAGO, type MetodoDePagoItem } from '@/types';
+import { DEFAULT_BANCOS_DISPONIBLES, DEFAULT_METODOS_DE_PAGO, type MetodoDePagoItem } from '@/types';
 
 export type UserProfileRow = {
   id: string;
@@ -29,6 +29,7 @@ export type UserProfileRow = {
   misiones_completadas: number;
   theme: string;
   metodos_de_pago: string[] | null;
+  bancos_disponibles?: string[] | null;
   onboarding_done?: boolean;
 };
 
@@ -45,6 +46,7 @@ export type UserProfileRowPatch = Partial<{
   misiones_completadas: number;
   theme: string;
   metodos_de_pago: string[] | null;
+  bancos_disponibles: string[] | null;
   onboarding_done: boolean;
 }>;
 

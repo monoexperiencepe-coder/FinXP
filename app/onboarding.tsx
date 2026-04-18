@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
@@ -8,9 +8,9 @@ import { createId } from '@/lib/ids';
 import * as db from '@/lib/database';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
-import type { MonedaCode } from '@/types';
+import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
 
-const METODOS = ['Efectivo', 'Tarjeta Débito', 'Tarjeta Crédito', 'Yape', 'Plin', 'Transferencia'];
+const BANCOS_DEFAULT = DEFAULT_BANCOS_DISPONIBLES;
 
 const CATEGORIAS_DEFAULT = [
   { id: 'alimentacion', nombre: 'Alimentación', emoji: '🍔' },
@@ -37,6 +37,13 @@ export default function OnboardingScreen() {
     const nombres = (profile.metodosDePago ?? []).map((m) => m.nombre);
     return nombres.length > 0 ? nombres : ['Efectivo', 'Yape'];
   });
+  const [newMetodoOnboarding, setNewMetodoOnboarding] = useState('');
+  const [showMetodoInput, setShowMetodoInput] = useState(false);
+  const [bancosList, setBancosList] = useState<string[]>(() =>
+    profile.bancosDisponibles?.length ? [...profile.bancosDisponibles] : [...BANCOS_DEFAULT],
+  );
+  const [newBanco, setNewBanco] = useState('');
+  const [showBancoInput, setShowBancoInput] = useState(false);
 
   const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
   const [categoriasList, setCategoriasList] = useState(CATEGORIAS_DEFAULT);
@@ -57,16 +64,31 @@ export default function OnboardingScreen() {
     setCategoriasList((prev) => prev.filter((c) => c.id !== id));
   };
 
-  const toggleMetodo = (metodo: string) => {
-    setMetodosSeleccionados((prev) =>
-      prev.includes(metodo) ? prev.filter((m) => m !== metodo) : [...prev, metodo],
-    );
+  const handleAddMetodoOnboarding = () => {
+    if (!newMetodoOnboarding.trim()) return;
+    if (!metodosSeleccionados.includes(newMetodoOnboarding.trim())) {
+      setMetodosSeleccionados((prev) => [...prev, newMetodoOnboarding.trim()]);
+    }
+    setNewMetodoOnboarding('');
+    setShowMetodoInput(false);
   };
 
-  const metodosPills = useMemo(() => {
-    const fromProfile = (profile.metodosDePago ?? []).map((m) => m.nombre);
-    return [...new Set([...METODOS, ...fromProfile])];
-  }, [profile.metodosDePago]);
+  const handleRemoveMetodo = (metodo: string) => {
+    setMetodosSeleccionados((prev) => prev.filter((m) => m !== metodo));
+  };
+
+  const handleAddBancoOnboarding = () => {
+    if (!newBanco.trim()) return;
+    if (!bancosList.includes(newBanco.trim())) {
+      setBancosList((prev) => [...prev, newBanco.trim()]);
+    }
+    setNewBanco('');
+    setShowBancoInput(false);
+  };
+
+  const handleRemoveBancoOnboarding = (nombre: string) => {
+    setBancosList((prev) => prev.filter((b) => b !== nombre));
+  };
 
   const handleFinish = async () => {
     if (!user) {
@@ -79,6 +101,7 @@ export default function OnboardingScreen() {
         moneda_principal: moneda,
         tipo_de_cambio: parseFloat(tipoCambio) || 3.75,
         metodos_de_pago: metodosSeleccionados,
+        bancos_disponibles: bancosList,
         onboarding_done: true,
       });
 
@@ -93,6 +116,7 @@ export default function OnboardingScreen() {
             nombre: n,
             activo: true,
           })),
+          bancosDisponibles: bancosList,
         },
       }));
 
@@ -249,23 +273,133 @@ export default function OnboardingScreen() {
             <View style={{ gap: 8 }}>
               <Text style={[styles.label, { color: T.textSecondary }]}>Métodos de pago que usas</Text>
               <View style={styles.pillRow}>
-                {metodosPills.map((m) => (
+                {metodosSeleccionados.map((m) => (
                   <TouchableOpacity
                     key={m}
                     style={[
                       styles.pill,
-                      {
-                        backgroundColor: metodosSeleccionados.includes(m) ? T.primary : T.surface,
-                        borderColor: metodosSeleccionados.includes(m) ? T.primary : T.glassBorder,
-                      },
+                      { backgroundColor: T.primary, borderColor: T.primary, flexDirection: 'row', gap: 6, alignItems: 'center' },
                     ]}
-                    onPress={() => toggleMetodo(m)}>
-                    <Text style={[styles.pillText, { color: metodosSeleccionados.includes(m) ? '#fff' : T.textSecondary }]}>
-                      {m}
-                    </Text>
+                    onPress={() => handleRemoveMetodo(m)}>
+                    <Text style={[styles.pillText, { color: '#fff' }]}>{m}</Text>
+                    <Text style={{ color: '#fff', fontSize: 12 }}>✕</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+              {showMetodoInput && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[
+                      {
+                        flex: 1,
+                        height: 44,
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        fontSize: 14,
+                        backgroundColor: T.surface,
+                        color: T.textPrimary,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                      },
+                    ]}
+                    placeholder="Ej: Yape, Nequi..."
+                    placeholderTextColor={T.textMuted}
+                    value={newMetodoOnboarding}
+                    onChangeText={setNewMetodoOnboarding}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      { height: 44, paddingHorizontal: 16, borderRadius: 10, backgroundColor: T.primary, justifyContent: 'center' },
+                    ]}
+                    onPress={handleAddMetodoOnboarding}>
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  {
+                    height: 40,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: T.glassBorder,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 16,
+                    alignSelf: 'flex-start',
+                  },
+                ]}
+                onPress={() => setShowMetodoInput(!showMetodoInput)}>
+                <Text style={{ color: T.textSecondary, fontSize: 13 }}>
+                  {showMetodoInput ? 'Cancelar' : '+ Agregar método'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <Text style={[styles.label, { color: T.textSecondary }]}>Bancos que usas</Text>
+              <View style={styles.pillRow}>
+                {bancosList.map((b) => (
+                  <TouchableOpacity
+                    key={b}
+                    style={[
+                      styles.pill,
+                      { backgroundColor: T.primary, borderColor: T.primary, flexDirection: 'row', gap: 6, alignItems: 'center' },
+                    ]}
+                    onPress={() => handleRemoveBancoOnboarding(b)}>
+                    <Text style={[styles.pillText, { color: '#fff' }]}>{b}</Text>
+                    <Text style={{ color: '#fff', fontSize: 12 }}>✕</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {showBancoInput && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[
+                      {
+                        flex: 1,
+                        height: 44,
+                        borderRadius: 10,
+                        paddingHorizontal: 12,
+                        fontSize: 14,
+                        backgroundColor: T.surface,
+                        color: T.textPrimary,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                      },
+                    ]}
+                    placeholder="Ej: Otro banco..."
+                    placeholderTextColor={T.textMuted}
+                    value={newBanco}
+                    onChangeText={setNewBanco}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      { height: 44, paddingHorizontal: 16, borderRadius: 10, backgroundColor: T.primary, justifyContent: 'center' },
+                    ]}
+                    onPress={handleAddBancoOnboarding}>
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  {
+                    height: 40,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: T.glassBorder,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 16,
+                    alignSelf: 'flex-start',
+                  },
+                ]}
+                onPress={() => setShowBancoInput(!showBancoInput)}>
+                <Text style={{ color: T.textSecondary, fontSize: 13 }}>
+                  {showBancoInput ? 'Cancelar' : '+ Agregar banco'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
           <View style={styles.navRow}>
