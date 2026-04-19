@@ -161,23 +161,10 @@ export default function PerfilScreen() {
 
   useEffect(() => {
     if (openSection !== 'presupuesto') return;
+    if (categories.length === 0) void loadCategories();
+    if (incomeCategories.length === 0) void loadIncomeCategories();
+
     const uid = user?.id;
-    if (uid) {
-      void (async () => {
-        try {
-          if (categories.length === 0) {
-            await db.initDefaultCategories(uid);
-            await loadCategories();
-          }
-          if (incomeCategories.length === 0) {
-            await db.initDefaultIncomeCategories(uid);
-            await loadIncomeCategories();
-          }
-        } catch (e) {
-          console.error('init default categories:', e);
-        }
-      })();
-    }
     const mesActual = new Date().toISOString().slice(0, 7);
     const fromStore: Record<string, string> = {};
     budgets.forEach((b) => {

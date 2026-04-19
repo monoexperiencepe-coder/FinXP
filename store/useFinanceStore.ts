@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { EXPENSE_CATEGORIES } from '@/constants/expenseCategories';
 import * as db from '@/lib/database';
+import { supabase } from '@/lib/supabase';
 import { createId } from '@/lib/ids';
 import {
   addDaysToDateKey,
@@ -960,6 +961,7 @@ export const useFinanceStore = create<FinanceState>()(
             syncing: false,
             lastSync: new Date().toISOString(),
           });
+          await get().loadCategories();
           await get().loadIncomeCategories();
         } catch (e) {
           console.error('Error cargando de Supabase:', e);
@@ -968,44 +970,58 @@ export const useFinanceStore = create<FinanceState>()(
       },
 
       loadCategories: async () => {
-        if (get().loadingCategories) return;
-
-        const { useAuthStore } = await import('./useAuthStore');
-        const userId = useAuthStore.getState().user?.id;
-        if (!userId) return;
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session) return;
 
         set({ loadingCategories: true });
-        const db = await import('@/lib/database');
         try {
-          let cats = await db.getCategoriesByTipo(userId, 'gasto');
-          if (cats.length === 0) {
-            await db.initDefaultCategories(userId);
-            cats = await db.getCategoriesByTipo(userId, 'gasto');
-          }
-          set({ categories: cats, loadingCategories: false });
+          const { data, error } = await supabase
+            .from('user_categories')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .eq('tipo', 'gasto')
+            .order('orden', { ascending: true });
+          if (error) throw error;
+          const rows = data ?? [];
+          const categories = rows.map((r: { id: string; nombre: string; emoji: string; orden: number | null }) => ({
+            id: r.id,
+            nombre: r.nombre,
+            emoji: r.emoji,
+            orden: typeof r.orden === 'number' ? r.orden : Number(r.orden) || 0,
+          }));
+          set({ categories, loadingCategories: false });
         } catch (e) {
-          console.error('Error loading categories:', e);
+          console.error('Error loadCategories:', e);
           set({ loadingCategories: false });
         }
       },
 
       loadIncomeCategories: async () => {
-        const userId = useAuthStore.getState().user?.id;
-        if (!userId) return;
-        const db = await import('@/lib/database');
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session) return;
+
         try {
-          await db.initDefaultIncomeCategories(userId);
-          const cats = await db.getCategoriesByTipo(userId, 'ingreso');
-          set({
-            incomeCategories: cats.map((c: { id: string; nombre: string; emoji: string; orden: number }) => ({
-              id: c.id,
-              nombre: c.nombre,
-              emoji: c.emoji,
-              orden: c.orden,
-            })),
-          });
+          const { data, error } = await supabase
+            .from('user_categories')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .eq('tipo', 'ingreso')
+            .order('orden', { ascending: true });
+          if (error) throw error;
+          const rows = data ?? [];
+          const incomeCategories = rows.map((r: { id: string; nombre: string; emoji: string; orden: number | null }) => ({
+            id: r.id,
+            nombre: r.nombre,
+            emoji: r.emoji,
+            orden: typeof r.orden === 'number' ? r.orden : Number(r.orden) || 0,
+          }));
+          set({ incomeCategories });
         } catch (e) {
-          console.error('Error loading income categories:', e);
+          console.error('Error loadIncomeCategories:', e);
         }
       },
 

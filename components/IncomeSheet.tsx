@@ -158,6 +158,14 @@ export function IncomeSheet({ open, onDismiss }: Props) {
   }, [backdropOpacity, bancosLista, isVisible, monedaPrincipal, onDismiss, open, translateY]);
 
   useEffect(() => {
+    if (incomeCategories.length === 0) {
+      void loadIncomeCategories();
+    }
+    // Intencional: solo al montar el sheet; el efecto de `open` sincroniza la categoría elegida.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     if (incomeCategories.length === 0) {
       void loadIncomeCategories();

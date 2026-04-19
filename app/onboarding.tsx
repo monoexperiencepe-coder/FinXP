@@ -5,6 +5,11 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOp
 
 import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme as T } from '@/constants/theme';
+import { createId } from '@/lib/ids';
+import * as db from '@/lib/database';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useFinanceStore } from '@/store/useFinanceStore';
+import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
 
 /** Tonos alineados con la guía de onboarding (botón final / inputs). */
 const THEME_ONBOARDING = {
@@ -12,11 +17,6 @@ const THEME_ONBOARDING = {
   primary: '#6C63FF',
   textPrimary: '#FFFFFF',
 } as const;
-import { createId } from '@/lib/ids';
-import * as db from '@/lib/database';
-import { useAuthStore } from '@/store/useAuthStore';
-import { useFinanceStore } from '@/store/useFinanceStore';
-import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
 
 const BANCOS_DEFAULT = DEFAULT_BANCOS_DISPONIBLES;
 
@@ -44,7 +44,7 @@ const INCOME_CATEGORIAS_DEFAULT = [
 export default function OnboardingScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { loadFromSupabase, loadCategories, loadIncomeCategories, profile } = useFinanceStore();
+  const { loadFromSupabase, profile } = useFinanceStore();
   const [step, setStep] = useState(0);
 
   const [nombreUsuario, setNombreUsuario] = useState('');
@@ -145,31 +145,59 @@ export default function OnboardingScreen() {
       }));
 
       const { supabase } = await import('@/lib/supabase');
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const sessionUserId = session?.user?.id ?? user.id;
 
-      await supabase.from('user_categories').delete().eq('user_id', user.id).eq('tipo', 'gasto');
+      // Guardar categorías de GASTOS
+      try {
+        const { error: delGastosError } = await supabase
+          .from('user_categories')
+          .delete()
+          .eq('user_id', sessionUserId)
+          .eq('tipo', 'gasto');
 
-      for (let i = 0; i < categoriasList.length; i++) {
-        const { error: gastoErr } = await supabase.from('user_categories').insert({
-          user_id: user.id,
-          nombre: categoriasList[i].nombre,
-          emoji: categoriasList[i].emoji,
-          tipo: 'gasto',
-          orden: i + 1,
-        });
-        if (gastoErr) throw gastoErr;
+        if (delGastosError) console.error('Error borrando gastos:', delGastosError);
+
+        for (let i = 0; i < categoriasList.length; i++) {
+          const cat = categoriasList[i];
+          const { error: insError } = await supabase.from('user_categories').insert({
+            user_id: sessionUserId,
+            nombre: cat.nombre,
+            emoji: cat.emoji,
+            tipo: 'gasto',
+            orden: i + 1,
+          });
+          if (insError) console.error('Error insertando categoría gasto:', cat.nombre, insError);
+        }
+      } catch (e) {
+        console.error('Error bloque gastos:', e);
       }
 
-      await supabase.from('user_categories').delete().eq('user_id', user.id).eq('tipo', 'ingreso');
+      // Guardar categorías de INGRESOS
+      try {
+        const { error: delIngresosError } = await supabase
+          .from('user_categories')
+          .delete()
+          .eq('user_id', sessionUserId)
+          .eq('tipo', 'ingreso');
 
-      for (let i = 0; i < incomeCategoriasList.length; i++) {
-        const { error: incomeErr } = await supabase.from('user_categories').insert({
-          user_id: user.id,
-          nombre: incomeCategoriasList[i].nombre,
-          emoji: incomeCategoriasList[i].emoji,
-          tipo: 'ingreso',
-          orden: i + 1,
-        });
-        if (incomeErr) throw incomeErr;
+        if (delIngresosError) console.error('Error borrando ingresos:', delIngresosError);
+
+        for (let i = 0; i < incomeCategoriasList.length; i++) {
+          const cat = incomeCategoriasList[i];
+          const { error: insError } = await supabase.from('user_categories').insert({
+            user_id: sessionUserId,
+            nombre: cat.nombre,
+            emoji: cat.emoji,
+            tipo: 'ingreso',
+            orden: i + 1,
+          });
+          if (insError) console.error('Error insertando categoría ingreso:', cat.nombre, insError);
+        }
+      } catch (e) {
+        console.error('Error bloque ingresos:', e);
       }
 
       const mesActual = new Date().toISOString().slice(0, 7);
@@ -181,7 +209,8 @@ export default function OnboardingScreen() {
       await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
 
       useFinanceStore.setState({ categories: [], incomeCategories: [] });
-      await loadFromSupabase();
+      const { loadFromSupabase: syncAll, loadCategories, loadIncomeCategories } = useFinanceStore.getState();
+      await syncAll();
       await loadCategories();
       if (typeof loadIncomeCategories === 'function') {
         await loadIncomeCategories();
