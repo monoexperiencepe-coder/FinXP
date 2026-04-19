@@ -11,6 +11,16 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(500).json({ error: 'Falta ANTHROPIC_API_KEY' });
+  }
+  if (!process.env.EXPO_PUBLIC_SUPABASE_URL) {
+    return res.status(500).json({ error: 'Falta SUPABASE_URL' });
+  }
+  if (!process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+    return res.status(500).json({ error: 'Falta SUPABASE_ANON_KEY' });
+  }
+
   const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
   const { historial, accessToken } = body;
 
@@ -42,11 +52,6 @@ module.exports = async function handler(req, res) {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
-
-  if (!url || !key || !anthropicKey) {
-    console.error('chat: faltan variables de entorno');
-    return res.status(500).json({ error: 'Configuración del servidor incompleta' });
-  }
 
   try {
     const supabase = createClient(url, key);
