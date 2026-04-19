@@ -14,10 +14,35 @@ const anthropic = new Anthropic({
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { message, accessToken } = req.body as { message?: string; accessToken?: string };
+  const { historial, accessToken } = req.body as {
+    historial?: unknown;
+    accessToken?: string;
+  };
 
-  if (!message || !accessToken) {
+  if (!accessToken) {
     return res.status(400).json({ error: 'Faltan parámetros' });
+  }
+
+  const raw = Array.isArray(historial) ? historial : [];
+  const messages = raw
+    .map((m) => {
+      if (!m || typeof m !== 'object') return null;
+      const o = m as { role?: unknown; content?: unknown };
+      const role = o.role === 'user' || o.role === 'assistant' ? o.role : null;
+      const content = typeof o.content === 'string' ? o.content.trim() : '';
+      if (!role || !content) return null;
+      return { role, content };
+    })
+    .filter((m): m is { role: 'user' | 'assistant'; content: string } => m !== null);
+
+  if (messages.length === 0 || messages[0].role !== 'user') {
+    return res.status(400).json({ error: 'Historial inválido' });
+  }
+
+  for (let i = 1; i < messages.length; i++) {
+    if (messages[i].role === messages[i - 1].role) {
+      return res.status(400).json({ error: 'Historial inválido' });
+    }
   }
 
   try {
@@ -103,7 +128,7 @@ ${
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 500,
       system: contexto,
-      messages: [{ role: 'user', content: message }],
+      messages,
     });
 
     const block = response.content[0];
