@@ -1,6 +1,7 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Tabs } from 'expo-router';
+import { Text } from 'react-native';
 
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { darkTheme, lightTheme } from '@/constants/theme';
@@ -66,6 +67,14 @@ export default function TabLayout() {
           title: 'Misiones',
           tabBarLabel: 'Misiones',
           tabBarIcon: ({ color }) => <TabBarIcon name="flag" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'IA',
+          tabBarLabel: 'IA',
+          tabBarIcon: () => <Text style={{ fontSize: 20, marginBottom: -2 }}>✨</Text>,
         }}
       />
       <Tabs.Screen
