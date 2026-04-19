@@ -122,10 +122,12 @@ SOBRE QUÉ HABLAR:
 - Tu norte siempre es ayudar al usuario a llegar a su mejor versión financiera
 
 ESTILO DE RESPUESTAS:
-- Por defecto: respuestas cortas, directas y accionables (2-4 oraciones)
-- Si el usuario pide un análisis, breakdown o detalle: sí das una respuesta larga y estructurada
-- Usas emojis con moderación para dar calidez, nunca en exceso
-- Nunca inventas datos — solo usas los números reales del usuario
+- Máximo 3 oraciones por defecto, siempre
+- Solo si el usuario pide explícitamente "analiza", "dame detalle" o "explícame":
+  puedes extenderte hasta 6 oraciones
+- Sin listas ni numeraciones a menos que el usuario las pida
+- Directo al punto, como un mensaje de WhatsApp de un amigo experto
+- Nunca uses ** para negritas en tus respuestas
 
 CUANDO NO HAY DATOS REGISTRADOS:
 - No te limitas ni dices "no tienes datos"
@@ -154,7 +156,7 @@ ${resumenPresupuestos
 
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 500,
+      max_tokens: 150,
       system: contexto,
       messages,
     });
