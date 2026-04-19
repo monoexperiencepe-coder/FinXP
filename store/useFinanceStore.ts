@@ -312,7 +312,7 @@ function mockMissions(): Mission[] {
     {
       id: 'm4',
       titulo: 'Registra tu primer ingreso',
-      descripcion: 'Sumá al menos un ingreso en FinXP.',
+      descripcion: 'Sumá al menos un ingreso en AhorraYA.',
       xpRecompensa: 20,
       progreso: 0,
       meta: 1,
@@ -564,7 +564,7 @@ export const useFinanceStore = create<FinanceState>()(
 
       setTheme: (mode) => {
         set({ theme: mode });
-        void AsyncStorage.setItem('finxp_dark_mode', mode === 'dark' ? 'true' : 'false');
+        void AsyncStorage.setItem('ahorraya_dark_mode', mode === 'dark' ? 'true' : 'false');
         void (async () => {
           const userId = useAuthStore.getState().user?.id;
           if (!userId) return;
@@ -1194,7 +1194,7 @@ export const useFinanceStore = create<FinanceState>()(
       getWeekSpent: (refDate = new Date()) => sumWeekExpenses(get().expenses, refDate),
     }),
     {
-      name: 'finxp-store-v2',
+      name: 'ahorraya-store-v2',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         profile: state.profile,

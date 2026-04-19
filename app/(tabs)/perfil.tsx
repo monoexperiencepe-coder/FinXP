@@ -205,8 +205,8 @@ export default function PerfilScreen() {
   const handleSignOut = async () => {
     try {
       await signOut();
-      await AsyncStorage.removeItem('finxp_onboarding_done');
-      await AsyncStorage.removeItem('finxp_last_login');
+      await AsyncStorage.removeItem('ahorraya_onboarding_done');
+      await AsyncStorage.removeItem('ahorraya_last_login');
     } catch (e) {
       console.error('Error signing out:', e);
     }
@@ -344,7 +344,7 @@ export default function PerfilScreen() {
                   borderWidth: 1,
                   borderColor: T.primary,
                 }}>
-                <Text style={{ fontFamily: Font.manrope600, color: T.primary, fontSize: 11 }}>FINXP</Text>
+                <Text style={{ fontFamily: Font.manrope600, color: T.primary, fontSize: 11 }}>AhorraYA</Text>
               </View>
               <View
                 style={{

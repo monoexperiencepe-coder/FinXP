@@ -51,7 +51,7 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.logoContainer}>
           <Text style={styles.logo}>💎</Text>
-          <Text style={[styles.title, { color: T.textPrimary }]}>FinXP</Text>
+          <Text style={[styles.title, { color: T.textPrimary }]}>AhorraYA</Text>
           <Text style={[styles.subtitle, { color: T.textSecondary }]}>Tu finanzas, gamificadas</Text>
         </View>
 

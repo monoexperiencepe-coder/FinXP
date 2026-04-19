@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "FinXP",
-    "slug": "FinXP",
+    "name": "AhorraYA",
+    "slug": "ahorraya",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "finxp",
+    "scheme": "ahorraya",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {

@@ -445,7 +445,7 @@ export default function ResumenScreen() {
               ...purpleShadow,
             }}>
             <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 16 }}>
-              ✨ Asesor Financiero IA FinXP
+              ✨ Asesor Financiero IA AhorraYA
             </Text>
             <View style={{ marginTop: 14, gap: 14 }}>
               {insights.map((text, i) => (

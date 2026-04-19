@@ -40,7 +40,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      await AsyncStorage.setItem('finxp_last_login', Date.now().toString());
+      await AsyncStorage.setItem('ahorraya_last_login', Date.now().toString());
     } finally {
       set({ loading: false });
     }

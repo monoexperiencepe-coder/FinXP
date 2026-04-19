@@ -18,6 +18,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: Platform.OS === 'web',
-    storageKey: 'finxp-auth-token',
+    storageKey: 'ahorraya-auth-token',
   },
 });

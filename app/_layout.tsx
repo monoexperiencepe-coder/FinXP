@@ -74,7 +74,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     void (async () => {
-      const savedMode = await AsyncStorage.getItem('finxp_dark_mode');
+      const savedMode = await AsyncStorage.getItem('ahorraya_dark_mode');
       if (savedMode === 'true') {
         useFinanceStore.setState({ theme: 'dark' });
       } else if (savedMode === 'false') {
@@ -87,12 +87,12 @@ export default function RootLayout() {
     const initAuth = async () => {
       await useAuthStore.getState().initialize();
 
-      const lastLogin = await AsyncStorage.getItem('finxp_last_login');
+      const lastLogin = await AsyncStorage.getItem('ahorraya_last_login');
       if (lastLogin) {
         const daysSinceLogin = (Date.now() - parseInt(lastLogin, 10)) / (1000 * 60 * 60 * 24);
         if (daysSinceLogin > 15) {
           await supabase.auth.signOut();
-          await AsyncStorage.removeItem('finxp_last_login');
+          await AsyncStorage.removeItem('ahorraya_last_login');
         }
       }
     };
@@ -113,7 +113,7 @@ export default function RootLayout() {
 
       if (session && inAuthGroup) {
         // Verificar onboarding en AsyncStorage primero (rápido)
-        const localDone = await AsyncStorage.getItem('finxp_onboarding_done');
+        const localDone = await AsyncStorage.getItem('ahorraya_onboarding_done');
         if (localDone) {
           router.replace('/(tabs)' as any);
           return;
@@ -127,7 +127,7 @@ export default function RootLayout() {
             .single();
 
           if (data?.onboarding_done) {
-            await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+            await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
             router.replace('/(tabs)' as any);
           } else {
             router.replace('/onboarding' as any);
@@ -139,7 +139,7 @@ export default function RootLayout() {
       }
 
       if (session && !inOnboarding && !inAuthGroup) {
-        const localDone = await AsyncStorage.getItem('finxp_onboarding_done');
+        const localDone = await AsyncStorage.getItem('ahorraya_onboarding_done');
         if (!localDone) {
           try {
             const { data } = await supabase
@@ -149,7 +149,7 @@ export default function RootLayout() {
               .single();
 
             if (data?.onboarding_done) {
-              await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+              await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
             } else {
               router.replace('/onboarding' as any);
             }

@@ -142,7 +142,7 @@ export default function OnboardingScreen() {
         .map(([categoria, limite]) => db.upsertBudget(user.id, categoria, parseFloat(limite), mesActual));
       await Promise.all(budgetPromises);
 
-      await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+      await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
 
       useFinanceStore.setState({ categories: [] });
       await loadFromSupabase();
@@ -151,7 +151,7 @@ export default function OnboardingScreen() {
       router.replace('/(tabs)' as any);
     } catch (e) {
       console.error('Error in handleFinish:', e);
-      await AsyncStorage.setItem('finxp_onboarding_done', 'true');
+      await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
       router.replace('/(tabs)' as any);
     }
   };
@@ -169,7 +169,7 @@ export default function OnboardingScreen() {
       {step === 0 && (
         <ScrollView contentContainerStyle={styles.slide} showsVerticalScrollIndicator={false}>
           <Text style={styles.bigEmoji}>💎</Text>
-          <Text style={[styles.title, { color: T.textPrimary }]}>Bienvenido a FinXP</Text>
+          <Text style={[styles.title, { color: T.textPrimary }]}>¡Bienvenido a AhorraYA!</Text>
           <Text style={[styles.subtitle, { color: T.textSecondary }]}>
             La app que convierte tus finanzas personales en un juego. Registra gastos, sube de nivel y gana recompensas por tener
             buenas finanzas.
