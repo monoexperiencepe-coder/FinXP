@@ -1,24 +1,34 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, FlatList, Modal, Platform, Pressable, Text, TextInput, View } from 'react-native';
-import { ScrollView } from 'react-native-gesture-handler';
+import { createElement, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert,
+  Animated,
+  FlatList,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import AnimatedRN, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GradientView } from '@/components/ui/GradientView';
 import { modalOverlayScrim, onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
-import { formatSpanishLongDate } from '@/lib/formatSpanishDate';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { IncomeFrecuencia, IncomeTipo, MonedaCode } from '@/types';
+import { DEFAULT_BANCOS_DISPONIBLES } from '@/types';
 
-const BANCOS = ['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Diners Club', 'CMR', 'PayPal', 'Otro'] as const;
-const FUENTES = ['Empresa', 'Cliente', 'Plataformas', 'Amigos', 'Familia'] as const;
-const TIPOS: IncomeTipo[] = ['Fijo', 'Variable', 'Extraordinario'];
-const OBJETIVOS = ['Ahorro', 'Inversión', 'Viaje', 'Pago de deuda'] as const;
-const FRECUENCIAS: IncomeFrecuencia[] = ['Diaria', 'Semanal', 'Mensual', 'Trimestral', 'Semestral', 'Anual'];
-const CATEGORIAS = ['Sueldo', 'Inversiones', 'Préstamos', 'Ventas', 'Transferencias', 'Contenido', 'Otros'] as const;
+const DEFAULT_FUENTE = 'Otro';
+const DEFAULT_TIPO: IncomeTipo = 'Variable';
+const DEFAULT_OBJETIVO = 'Ahorro';
+const DEFAULT_FRECUENCIA: IncomeFrecuencia = 'Mensual';
 
 type Props = {
   open: boolean;
@@ -32,35 +42,62 @@ function toDateKeyLocal(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function Pill({
-  label,
-  active,
+function fechaKeyToDate(key: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key.trim());
+  if (!m) return new Date();
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d);
+}
+
+function CategoryCell({
+  emoji,
+  name,
+  selected,
   onPress,
 }: {
-  label: string;
-  active: boolean;
+  emoji: string;
+  name: string;
+  selected: boolean;
   onPress: () => void;
 }) {
   const { T } = useTheme();
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    scale.value = withSpring(selected ? 1.05 : 1, { damping: 15, stiffness: 220 });
+  }, [scale, selected]);
+  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
-    <Pressable onPress={onPress}>
-      {active ? (
-        <GradientView colors={T.primaryGrad} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}>
-          <Text style={{ fontFamily: Font.manrope600, fontSize: 14, color: onPrimaryGradient.text }}>{label}</Text>
-        </GradientView>
-      ) : (
-        <View
+    <Pressable style={{ width: '33.333%', padding: 4 }} onPress={onPress}>
+      <AnimatedRN.View
+        style={[
+          anim,
+          {
+            borderWidth: 2,
+            borderColor: selected ? T.primary : T.glassBorder,
+            borderRadius: 12,
+            paddingVertical: 10,
+            paddingHorizontal: 6,
+            backgroundColor: selected ? T.primaryBg : T.card,
+            minHeight: 88,
+            justifyContent: 'center',
+          },
+        ]}>
+        <Text style={{ textAlign: 'center', fontSize: 24 }}>{emoji}</Text>
+        <Text
+          numberOfLines={2}
           style={{
-            borderRadius: 999,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            backgroundColor: T.card,
-            borderWidth: 1,
-            borderColor: T.glassBorder,
+            fontFamily: Font.manrope500,
+            fontSize: 11,
+            marginTop: 4,
+            textAlign: 'center',
+            lineHeight: 14,
+            color: T.textSecondary,
           }}>
-          <Text style={{ fontFamily: Font.manrope500, fontSize: 14, color: T.textMuted }}>{label}</Text>
-        </View>
-      )}
+          {name}
+        </Text>
+      </AnimatedRN.View>
     </Pressable>
   );
 }
@@ -70,19 +107,22 @@ export function IncomeSheet({ open, onDismiss }: Props) {
   const insets = useSafeAreaInsets();
   const addIncomeToSupabase = useFinanceStore((s) => s.addIncomeToSupabase);
   const monedaPrincipal = useFinanceStore((s) => s.profile.monedaPrincipal);
+  const profile = useFinanceStore((s) => s.profile);
+  const categories = useFinanceStore((s) => s.categories);
+
+  const bancosLista = useMemo(() => {
+    const list = profile.bancosDisponibles;
+    return list?.length ? list : DEFAULT_BANCOS_DISPONIBLES;
+  }, [profile.bancosDisponibles]);
 
   const [isVisible, setIsVisible] = useState(false);
-  const [date, setDate] = useState(new Date());
+  const [fecha, setFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [showIosPicker, setShowIosPicker] = useState(false);
   const [amount, setAmount] = useState('');
   const [moneda, setMoneda] = useState<MonedaCode>('PEN');
-  const [fuente, setFuente] = useState<string>(FUENTES[0]);
-  const [tipo, setTipo] = useState<IncomeTipo>(TIPOS[0]);
-  const [objetivo, setObjetivo] = useState<string>(OBJETIVOS[0]);
-  const [frecuencia, setFrecuencia] = useState<IncomeFrecuencia>('Mensual');
-  const [banco, setBanco] = useState<string>(BANCOS[0]);
+  const [banco, setBanco] = useState<string>('');
   const [bancoMenu, setBancoMenu] = useState(false);
-  const [categoria, setCategoria] = useState<string>(CATEGORIAS[0]);
+  const [categoria, setCategoria] = useState<string>('');
   const [descripcion, setDescripcion] = useState('');
 
   const translateY = useRef(new Animated.Value(560)).current;
@@ -92,14 +132,10 @@ export function IncomeSheet({ open, onDismiss }: Props) {
     if (open) {
       setIsVisible(true);
       setMoneda(monedaPrincipal);
-      setDate(new Date());
+      setFecha(new Date().toISOString().split('T')[0]);
       setAmount('');
-      setFuente(FUENTES[0]);
-      setTipo(TIPOS[0]);
-      setObjetivo(OBJETIVOS[0]);
-      setFrecuencia('Mensual');
-      setBanco(BANCOS[0]);
-      setCategoria(CATEGORIAS[0]);
+      setBanco(bancosLista[0] ?? '');
+      setCategoria(categories[0]?.nombre ?? '');
       setDescripcion('');
       Animated.parallel([
         Animated.timing(backdropOpacity, { toValue: 0.55, duration: 220, useNativeDriver: true }),
@@ -118,7 +154,7 @@ export function IncomeSheet({ open, onDismiss }: Props) {
         }
       });
     }
-  }, [backdropOpacity, isVisible, monedaPrincipal, onDismiss, open, translateY]);
+  }, [backdropOpacity, bancosLista, categories, isVisible, monedaPrincipal, onDismiss, open, translateY]);
 
   const dismiss = () => {
     Animated.parallel([
@@ -133,16 +169,12 @@ export function IncomeSheet({ open, onDismiss }: Props) {
   };
 
   const openDatePicker = () => {
-    if (Platform.OS === 'web') {
-      Alert.alert('Fecha', 'En web usá el campo YYYY-MM-DD.');
-      return;
-    }
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
-        value: date,
+        value: fechaKeyToDate(fecha),
         mode: 'date',
         onChange: (_event, selectedDate) => {
-          if (selectedDate) setDate(selectedDate);
+          if (selectedDate) setFecha(toDateKeyLocal(selectedDate));
         },
       });
       return;
@@ -150,7 +182,6 @@ export function IncomeSheet({ open, onDismiss }: Props) {
     setShowIosPicker((v) => !v);
   };
 
-  const dateLabel = useMemo(() => formatSpanishLongDate(date), [date]);
   const symbol = moneda === 'PEN' ? 'S/' : '$';
 
   const onSave = async () => {
@@ -162,15 +193,25 @@ export function IncomeSheet({ open, onDismiss }: Props) {
       }
       return;
     }
+    if (!categoria) {
+      Alert.alert('Categoría', 'Selecciona una categoría');
+      return;
+    }
+    if (!banco?.trim()) {
+      Alert.alert('Banco', 'Selecciona un banco');
+      return;
+    }
+    const fd = fechaKeyToDate(fecha);
+    const fechaIso = new Date(fd.getFullYear(), fd.getMonth(), fd.getDate(), 12, 0, 0, 0).toISOString();
     try {
       await addIncomeToSupabase({
-        fecha: date.toISOString(),
+        fecha: fechaIso,
         importe: value,
         moneda,
-        fuente,
-        tipo,
-        objetivo,
-        frecuencia,
+        fuente: DEFAULT_FUENTE,
+        tipo: DEFAULT_TIPO,
+        objetivo: DEFAULT_OBJETIVO,
+        frecuencia: DEFAULT_FRECUENCIA,
         banco,
         categoria,
         descripcion: descripcion.trim(),
@@ -187,6 +228,23 @@ export function IncomeSheet({ open, onDismiss }: Props) {
   };
 
   if (!open && !isVisible) return null;
+
+  const labelStyle = {
+    fontFamily: Font.manrope600,
+    color: T.textMuted,
+    fontSize: 11,
+    letterSpacing: 2,
+    marginBottom: 8,
+  };
+  const inputContainerStyle = {
+    backgroundColor: T.surface,
+    borderColor: T.glassBorder,
+    borderWidth: 1,
+    borderRadius: 12,
+    height: 52,
+    overflow: 'hidden' as const,
+    justifyContent: 'center' as const,
+  };
 
   return (
     <Modal transparent visible={open || isVisible} animationType="none" onRequestClose={dismiss}>
@@ -229,55 +287,69 @@ export function IncomeSheet({ open, onDismiss }: Props) {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-            <Text
-              style={{
-                fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8,
-              }}>
-              FECHA
-            </Text>
-            <Pressable onPress={openDatePicker} className="rounded-xl border border-border bg-bg px-4 py-3">
-              <Text className="text-base text-text">{dateLabel}</Text>
-            </Pressable>
             {Platform.OS === 'web' ? (
-              <TextInput
-                value={toDateKeyLocal(date)}
-                onChangeText={(t) => {
-                  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.trim());
-                  if (!m) return;
-                  const y = Number(m[1]);
-                  const mo = Number(m[2]);
-                  const d = Number(m[3]);
-                  const next = new Date(y, mo - 1, d);
-                  if (!Number.isNaN(+next)) setDate(next);
-                }}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={T.textMuted}
-                className="mt-2 rounded-xl border border-border bg-bg px-4 py-2 text-sm text-text"
-                style={Platform.OS === 'web' ? { fontFamily: 'monospace' } : undefined}
-              />
-            ) : null}
+              <View style={{ marginBottom: 16 }}>
+                <Text style={labelStyle}>FECHA</Text>
+                <View style={inputContainerStyle}>
+                  <input
+                    type="date"
+                    value={fecha}
+                    onChange={(e: { target: { value: string } }) => setFecha(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: 'white',
+                      fontSize: 16,
+                      padding: '12px 0',
+                      colorScheme: 'dark',
+                    }}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View style={{ marginBottom: 16 }}>
+                <Text style={labelStyle}>FECHA</Text>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={{
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    backgroundColor: T.surface,
+                    borderColor: T.glassBorder,
+                    justifyContent: 'center',
+                  }}
+                  onPress={openDatePicker}>
+                  <Text style={{ color: T.textPrimary, fontSize: 15 }}>
+                    {fecha
+                      ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-PE', {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })
+                      : 'Seleccionar fecha'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {Platform.OS === 'ios' && showIosPicker ? (
               <DateTimePicker
-                value={date}
+                value={fechaKeyToDate(fecha)}
                 mode="date"
                 display="spinner"
                 themeVariant={isDark ? 'dark' : 'light'}
                 onChange={(_event, selectedDate) => {
-                  if (selectedDate) setDate(selectedDate);
+                  if (selectedDate) setFecha(toDateKeyLocal(selectedDate));
                 }}
               />
             ) : null}
 
             <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>MONTO</Text>
+            <Text style={labelStyle}>MONTO</Text>
             <View className="flex-row items-center justify-center rounded-2xl border-2 border-border bg-bg px-3 py-3">
               <Text className="mr-1 text-[28px] font-semibold text-text">{symbol}</Text>
               <TextInput
@@ -291,11 +363,7 @@ export function IncomeSheet({ open, onDismiss }: Props) {
             </View>
 
             <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>MONEDA</Text>
+            <Text style={labelStyle}>MONEDA</Text>
             <View
               style={{
                 flexDirection: 'row',
@@ -324,88 +392,57 @@ export function IncomeSheet({ open, onDismiss }: Props) {
             </View>
 
             <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>FUENTE</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {FUENTES.map((item) => (
-                <Pill key={item} label={item} active={fuente === item} onPress={() => setFuente(item)} />
+            <Text style={labelStyle}>CATEGORÍA</Text>
+            <View className="flex-row flex-wrap">
+              {categories.map((cat) => (
+                <CategoryCell
+                  key={cat.id}
+                  emoji={cat.emoji}
+                  name={cat.nombre}
+                  selected={categoria === cat.nombre}
+                  onPress={() => setCategoria(cat.nombre)}
+                />
               ))}
             </View>
 
             <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>TIPO</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {TIPOS.map((item) => (
-                <Pill key={item} label={item} active={tipo === item} onPress={() => setTipo(item)} />
-              ))}
-            </View>
+            <Text style={labelStyle}>BANCO</Text>
+            {Platform.OS === 'web' ? (
+              <View style={{ marginBottom: 16 }}>
+                {createElement(
+                  'select',
+                  {
+                    value: banco,
+                    onChange: (e: { target: { value: string } }) => setBanco(e.target.value),
+                    style: {
+                      width: '100%',
+                      background: '#1A1F3E',
+                      color: 'white',
+                      border: '1px solid #2A3050',
+                      borderRadius: 12,
+                      padding: '12px',
+                      fontSize: 15,
+                      colorScheme: 'dark',
+                    } as object,
+                  },
+                  createElement('option', { value: '' }, 'Selecciona un banco'),
+                  ...(profile.bancosDisponibles?.length
+                    ? profile.bancosDisponibles
+                    : DEFAULT_BANCOS_DISPONIBLES
+                  ).map((b) => createElement('option', { key: b, value: b }, b)),
+                )}
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => setBancoMenu(true)}
+                className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
+                <Text className="text-base text-text">{banco || 'Selecciona un banco'}</Text>
+                <Text className="text-muted">▾</Text>
+              </Pressable>
+            )}
 
             <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>OBJETIVO</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {OBJETIVOS.map((item) => (
-                <Pill key={item} label={item} active={objetivo === item} onPress={() => setObjetivo(item)} />
-              ))}
-            </View>
-
-            <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>
-              FRECUENCIA
-            </Text>
-            <View className="flex-row flex-wrap gap-2">
-              {FRECUENCIAS.map((item) => (
-                <Pill key={item} label={item} active={frecuencia === item} onPress={() => setFrecuencia(item)} />
-              ))}
-            </View>
-
-            <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>BANCO</Text>
-            <Pressable
-              onPress={() => setBancoMenu(true)}
-              className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
-              <Text className="text-base text-text">{banco}</Text>
-              <Text className="text-muted">▾</Text>
-            </Pressable>
-
-            <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>CATEGORÍA</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {CATEGORIAS.map((item) => (
-                <Pill key={item} label={item} active={categoria === item} onPress={() => setCategoria(item)} />
-              ))}
-            </View>
-
-            <View style={{ height: 24 }} />
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>
-              DESCRIPCIÓN
-            </Text>
+            <Text style={labelStyle}>DESCRIPCIÓN</Text>
             <TextInput
               value={descripcion}
               onChangeText={setDescripcion}
@@ -447,7 +484,7 @@ export function IncomeSheet({ open, onDismiss }: Props) {
                 className="mx-4 mb-8 rounded-2xl border border-border bg-bg p-2"
                 onPress={(e) => e.stopPropagation()}>
                 <FlatList
-                  data={[...BANCOS]}
+                  data={[...bancosLista]}
                   keyExtractor={(item) => item}
                   renderItem={({ item }) => (
                     <Pressable
