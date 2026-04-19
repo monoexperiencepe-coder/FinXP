@@ -13,16 +13,18 @@ import {
   View,
 } from 'react-native';
 
+import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme as T } from '@/constants/theme';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { signIn, sendMagicLink, loading } = useAuthStore();
+  const { signIn, sendMagicLink, loading, setPostLoginTransitionPending } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'password' | 'magic'>('password');
   const [error, setError] = useState('');
+  const [showLoader, setShowLoader] = useState(false);
 
   const handleSignIn = async () => {
     setError('');
@@ -33,6 +35,8 @@ export default function LoginScreen() {
     try {
       await signIn(email.trim(), password);
       setError('');
+      setPostLoginTransitionPending(true);
+      setShowLoader(true);
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
       if (e.message?.includes('Invalid login credentials')) {
@@ -159,6 +163,14 @@ export default function LoginScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <LoaderTransicion
+        visible={showLoader}
+        onFinish={() => {
+          setShowLoader(false);
+          setPostLoginTransitionPending(false);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }

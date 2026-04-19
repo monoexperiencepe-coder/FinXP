@@ -125,8 +125,10 @@ export default function PerfilScreen() {
   const toggleTheme = useFinanceStore((s) => s.toggleTheme);
   const addCategory = useFinanceStore((s) => s.addCategory);
   const removeCategory = useFinanceStore((s) => s.removeCategory);
+  const updateCategory = useFinanceStore((s) => s.updateCategory);
 
   const [openSection, setOpenSection] = useState<string | null>('cuenta');
+  const [emojiOverrides, setEmojiOverrides] = useState<Record<string, string>>({});
   const [tipoCambioDraft, setTipoCambioDraft] = useState(String(profile.tipoDeCambio));
   const [newMetodo, setNewMetodo] = useState('');
   const [showMetodoInput, setShowMetodoInput] = useState(false);
@@ -545,7 +547,45 @@ export default function PerfilScreen() {
                       borderColor: T.glassBorder,
                     },
                   ]}>
-                  <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
+                  <View style={{ alignItems: 'center', width: 44 }}>
+                    <TextInput
+                      value={emojiOverrides[cat.id] ?? cat.emoji}
+                      onChangeText={(nuevoEmoji) => {
+                        setEmojiOverrides((prev) => ({ ...prev, [cat.id]: nuevoEmoji }));
+                      }}
+                      onBlur={() => {
+                        void (async () => {
+                          const uid = user?.id;
+                          if (!uid) return;
+                          const raw = (emojiOverrides[cat.id] ?? cat.emoji).trim();
+                          const emoji = raw.slice(0, 2) || '📦';
+                          try {
+                            await updateCategory(cat.id, cat.nombre, emoji);
+                            setEmojiOverrides((prev) => {
+                              const next = { ...prev };
+                              delete next[cat.id];
+                              return next;
+                            });
+                          } catch (e) {
+                            console.error('updateCategory emoji:', e);
+                          }
+                        })();
+                      }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        fontSize: 22,
+                        textAlign: 'center',
+                        backgroundColor: 'rgba(255,255,255,0.05)',
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                        color: T.textPrimary,
+                      }}
+                      maxLength={2}
+                    />
+                    <Text style={{ fontSize: 9, color: T.textMuted, textAlign: 'center', marginTop: 2 }}>editar</Text>
+                  </View>
                   <Text style={[{ flex: 1, color: T.textPrimary, fontSize: 14 }]}>{cat.nombre}</Text>
                   <TextInput
                     value={budgetAmounts[cat.nombre] ?? ''}

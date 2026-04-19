@@ -39,6 +39,7 @@ export default function RootLayout() {
   const T = themeMode === 'dark' ? darkTheme : lightTheme;
 
   const { session, initialized } = useAuthStore();
+  const postLoginTransitionPending = useAuthStore((s) => s.postLoginTransitionPending);
   const router = useRouter();
   const segments = useSegments();
 
@@ -112,6 +113,9 @@ export default function RootLayout() {
       }
 
       if (session && inAuthGroup) {
+        if (postLoginTransitionPending) {
+          return;
+        }
         // Verificar onboarding en AsyncStorage primero (rápido)
         const localDone = await AsyncStorage.getItem('ahorraya_onboarding_done');
         if (localDone) {
@@ -161,7 +165,7 @@ export default function RootLayout() {
     };
 
     void checkOnboarding();
-  }, [session, initialized, segments, loaded, router]);
+  }, [session, initialized, segments, loaded, router, postLoginTransitionPending]);
 
   useEffect(() => {
     if (loaded) {

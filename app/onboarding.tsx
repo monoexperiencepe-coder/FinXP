@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
+import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme as T } from '@/constants/theme';
 import { createId } from '@/lib/ids';
 import * as db from '@/lib/database';
@@ -49,6 +50,7 @@ export default function OnboardingScreen() {
   const [categoriasList, setCategoriasList] = useState(CATEGORIAS_DEFAULT);
   const [newCatName, setNewCatName] = useState('');
   const [showCatInput, setShowCatInput] = useState(false);
+  const [showLoader, setShowLoader] = useState(false);
 
   const totalSteps = 4;
 
@@ -148,7 +150,7 @@ export default function OnboardingScreen() {
       await loadFromSupabase();
       await loadCategories();
 
-      router.replace('/(tabs)' as any);
+      setShowLoader(true);
     } catch (e) {
       console.error('Error in handleFinish:', e);
       await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
@@ -501,6 +503,11 @@ export default function OnboardingScreen() {
           </View>
         </ScrollView>
       )}
+
+      <LoaderTransicion
+        visible={showLoader}
+        onFinish={() => router.replace('/(tabs)' as any)}
+      />
     </View>
   );
 }

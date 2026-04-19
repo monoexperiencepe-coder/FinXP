@@ -10,8 +10,11 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   initialized: boolean;
+  /** Evita que el root layout redirija desde login mientras se muestra el loader post-login */
+  postLoginTransitionPending: boolean;
 
   initialize: () => Promise<void>;
+  setPostLoginTransitionPending: (pending: boolean) => void;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, nombreUsuario: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -23,6 +26,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   loading: false,
   initialized: false,
+  postLoginTransitionPending: false,
+
+  setPostLoginTransitionPending: (pending) => set({ postLoginTransitionPending: pending }),
 
   initialize: async () => {
     const {
