@@ -1,10 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme as T } from '@/constants/theme';
+
+/** Tonos alineados con la guía de onboarding (botón final / inputs). */
+const THEME_ONBOARDING = {
+  border: '#2A3050',
+  primary: '#6C63FF',
+  textPrimary: '#FFFFFF',
+} as const;
 import { createId } from '@/lib/ids';
 import * as db from '@/lib/database';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -61,6 +68,7 @@ export default function OnboardingScreen() {
   const [newCatName, setNewCatName] = useState('');
   const [showCatInput, setShowCatInput] = useState(false);
   const [showLoader, setShowLoader] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   const totalSteps = 5;
 
@@ -107,6 +115,7 @@ export default function OnboardingScreen() {
       router.replace('/(tabs)' as any);
       return;
     }
+    setFinishing(true);
     try {
       const nombreGuardado = nombreUsuario.trim() || 'Usuario';
       await db.updateProfile(user.id, {
@@ -139,26 +148,26 @@ export default function OnboardingScreen() {
 
       await supabase.from('user_categories').delete().eq('user_id', user.id).eq('tipo', 'gasto');
 
-      await supabase.from('user_categories').insert(
-        categoriasList.map((c, i) => ({
+      for (let i = 0; i < categoriasList.length; i++) {
+        const { error: gastoErr } = await supabase.from('user_categories').insert({
           user_id: user.id,
-          nombre: c.nombre,
-          emoji: c.emoji,
-          orden: i,
-          tipo: 'gasto' as const,
-        })),
-      );
+          nombre: categoriasList[i].nombre,
+          emoji: categoriasList[i].emoji,
+          tipo: 'gasto',
+          orden: i + 1,
+        });
+        if (gastoErr) throw gastoErr;
+      }
 
       await supabase.from('user_categories').delete().eq('user_id', user.id).eq('tipo', 'ingreso');
 
-      for (let idx = 0; idx < incomeCategoriasList.length; idx++) {
-        const cat = incomeCategoriasList[idx];
+      for (let i = 0; i < incomeCategoriasList.length; i++) {
         const { error: incomeErr } = await supabase.from('user_categories').insert({
           user_id: user.id,
-          nombre: cat.nombre,
-          emoji: cat.emoji,
+          nombre: incomeCategoriasList[i].nombre,
+          emoji: incomeCategoriasList[i].emoji,
           tipo: 'ingreso',
-          orden: idx + 1,
+          orden: i + 1,
         });
         if (incomeErr) throw incomeErr;
       }
@@ -171,14 +180,18 @@ export default function OnboardingScreen() {
 
       await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
 
-      useFinanceStore.setState({ categories: [] });
+      useFinanceStore.setState({ categories: [], incomeCategories: [] });
       await loadFromSupabase();
       await loadCategories();
-      await loadIncomeCategories();
+      if (typeof loadIncomeCategories === 'function') {
+        await loadIncomeCategories();
+      }
 
+      setFinishing(false);
       setShowLoader(true);
     } catch (e) {
       console.error('Error in handleFinish:', e);
+      setFinishing(false);
       await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
       router.replace('/(tabs)' as any);
     }
@@ -455,7 +468,24 @@ export default function OnboardingScreen() {
           <View style={{ gap: 10, width: '100%' }}>
             {categoriasList.map((cat) => (
               <View key={cat.id} style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
-                <Text style={{ fontSize: 22 }}>{cat.emoji}</Text>
+                <TextInput
+                  value={cat.emoji}
+                  onChangeText={(val) =>
+                    setCategoriasList((prev) => prev.map((c) => (c.id === cat.id ? { ...c, emoji: val } : c)))
+                  }
+                  style={{
+                    width: 40,
+                    height: 40,
+                    fontSize: 22,
+                    textAlign: 'center',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: THEME_ONBOARDING.border,
+                    color: THEME_ONBOARDING.textPrimary,
+                  }}
+                  maxLength={2}
+                />
                 <Text style={[styles.budgetLabel, { color: T.textPrimary }]}>{cat.nombre}</Text>
                 <TextInput
                   style={[styles.budgetInput, { backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
@@ -614,9 +644,26 @@ export default function OnboardingScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.btn, { backgroundColor: T.primary, width: '100%' }]}
-            onPress={handleFinish}>
-            <Text style={styles.btnText}>¡Empezar a ahorrar! 🚀</Text>
+            onPress={handleFinish}
+            disabled={finishing}
+            style={{
+              backgroundColor: finishing ? THEME_ONBOARDING.border : THEME_ONBOARDING.primary,
+              borderRadius: 16,
+              padding: 18,
+              alignItems: 'center',
+              flexDirection: 'row',
+              justifyContent: 'center',
+              gap: 10,
+              width: '100%',
+            }}>
+            {finishing ? (
+              <>
+                <ActivityIndicator size="small" color="white" />
+                <Text style={{ color: 'white', fontSize: 17, fontWeight: '800' }}>Guardando tu perfil...</Text>
+              </>
+            ) : (
+              <Text style={{ color: 'white', fontSize: 17, fontWeight: '800' }}>¡Empezar a ahorrar! 🚀</Text>
+            )}
           </TouchableOpacity>
         </ScrollView>
       )}

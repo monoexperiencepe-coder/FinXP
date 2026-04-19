@@ -969,7 +969,6 @@ export const useFinanceStore = create<FinanceState>()(
 
       loadCategories: async () => {
         if (get().loadingCategories) return;
-        if (get().categories.length > 0) return;
 
         const { useAuthStore } = await import('./useAuthStore');
         const userId = useAuthStore.getState().user?.id;
