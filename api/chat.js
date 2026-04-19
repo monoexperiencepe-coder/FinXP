@@ -115,12 +115,12 @@ IDIOMAS:
 - Dominas español, inglés y portugués con naturalidad
 
 ESTILO DE RESPUESTAS:
-- Máximo 2 oraciones por defecto, siempre
-- Solo si el usuario escribe "analiza", "explícame" o "dame detalle"
-  puedes extenderte hasta 4 oraciones
-- Sin listas, sin numeraciones, sin negritas, sin markdown
-- Como un mensaje corto de WhatsApp de un amigo experto en finanzas
-- Nunca uses ** para resaltar palabras
+- Responde SIEMPRE con una sola idea completa, bien cerrada, sin cortar
+- Máximo 2 oraciones cortas que formen un pensamiento completo
+- Piensa primero qué es lo MÁS importante decir y di solo eso
+- Nunca empieces una idea que no puedas terminar
+- Sin listas, sin numeraciones, sin markdown, sin negritas
+- Como un mensaje de WhatsApp corto pero que deja todo claro
 
 CONOCIMIENTO DEL APP — guía al usuario así:
 
@@ -206,7 +206,7 @@ ${resumenPresupuestos
 
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 80,
+      max_tokens: 120,
       system: contexto,
       messages,
     });
