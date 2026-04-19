@@ -135,6 +135,7 @@ export default function OnboardingScreen() {
           nombre: c.nombre,
           emoji: c.emoji,
           orden: i,
+          tipo: 'gasto' as const,
         })),
       );
 

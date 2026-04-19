@@ -113,6 +113,8 @@ export default function PerfilScreen() {
   const missions = useFinanceStore((s) => s.missions);
   const budgets = useFinanceStore((s) => s.budgets);
   const categories = useFinanceStore((s) => s.categories);
+  const incomeCategories = useFinanceStore((s) => s.incomeCategories);
+  const loadIncomeCategories = useFinanceStore((s) => s.loadIncomeCategories);
 
   const setMonedaPrincipal = useFinanceStore((s) => s.setMonedaPrincipal);
   const setTipoDeCambio = useFinanceStore((s) => s.setTipoDeCambio);
@@ -140,6 +142,11 @@ export default function PerfilScreen() {
   const [savingNombre, setSavingNombre] = useState(false);
   const [budgetAmounts, setBudgetAmounts] = useState<Record<string, string>>({});
   const [savingBudgets, setSavingBudgets] = useState(false);
+  const [incomeCatsLocal, setIncomeCatsLocal] = useState(incomeCategories);
+
+  useEffect(() => {
+    setIncomeCatsLocal(incomeCategories);
+  }, [incomeCategories]);
 
   useEffect(() => {
     setTipoCambioDraft(String(profile.tipoDeCambio));
@@ -153,6 +160,7 @@ export default function PerfilScreen() {
 
   useEffect(() => {
     if (openSection !== 'presupuesto') return;
+    void loadIncomeCategories();
     const mesActual = new Date().toISOString().slice(0, 7);
     const fromStore: Record<string, string> = {};
     budgets.forEach((b) => {
@@ -181,7 +189,7 @@ export default function PerfilScreen() {
     return () => {
       cancelled = true;
     };
-  }, [openSection, user?.id, budgets]);
+  }, [openSection, user?.id, budgets, loadIncomeCategories]);
 
   const initial = useMemo(
     () => (profile.nombreUsuario || 'U').trim().charAt(0).toUpperCase() || '?',
@@ -664,6 +672,130 @@ export default function PerfilScreen() {
                   {showCatInput ? 'Cancelar' : '+ Agregar categoría'}
                 </Text>
               </TouchableOpacity>
+
+              <View style={{ height: 1, backgroundColor: T.glassBorder, marginVertical: 16 }} />
+
+              <Text
+                style={{
+                  color: T.textSecondary,
+                  fontSize: 13,
+                  fontFamily: Font.jakarta600,
+                  marginBottom: 12,
+                }}>
+                Categorías de ingresos
+              </Text>
+
+              {incomeCatsLocal.map((cat) => (
+                <View
+                  key={cat.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: T.surface,
+                    borderRadius: 12,
+                    padding: 10,
+                    marginBottom: 8,
+                    borderWidth: 1,
+                    borderColor: T.glassBorder,
+                    gap: 10,
+                  }}>
+                  <View style={{ alignItems: 'center' }}>
+                    <TextInput
+                      value={cat.emoji}
+                      onChangeText={(val) =>
+                        setIncomeCatsLocal((prev) =>
+                          prev.map((c) => (c.id === cat.id ? { ...c, emoji: val } : c)),
+                        )
+                      }
+                      onBlur={async () => {
+                        if (!user?.id) return;
+                        const emoji = cat.emoji.trim().slice(0, 2) || '📦';
+                        setIncomeCatsLocal((prev) =>
+                          prev.map((c) => (c.id === cat.id ? { ...c, emoji } : c)),
+                        );
+                        await updateCategory(cat.id, cat.nombre, emoji);
+                      }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        fontSize: 22,
+                        textAlign: 'center',
+                        backgroundColor: 'rgba(255,255,255,0.05)',
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                        color: T.textPrimary,
+                      }}
+                      maxLength={2}
+                    />
+                    <Text style={{ fontSize: 9, color: T.textMuted }}>editar</Text>
+                  </View>
+
+                  <TextInput
+                    value={cat.nombre}
+                    onChangeText={(val) =>
+                      setIncomeCatsLocal((prev) =>
+                        prev.map((c) => (c.id === cat.id ? { ...c, nombre: val } : c)),
+                      )
+                    }
+                    onBlur={async () => {
+                      if (!user?.id) return;
+                      const nombre = cat.nombre.trim() || 'Sin nombre';
+                      setIncomeCatsLocal((prev) =>
+                        prev.map((c) => (c.id === cat.id ? { ...c, nombre } : c)),
+                      );
+                      await updateCategory(cat.id, nombre, cat.emoji);
+                    }}
+                    style={{
+                      flex: 1,
+                      color: T.textPrimary,
+                      fontSize: 14,
+                      backgroundColor: 'transparent',
+                    }}
+                  />
+
+                  <TouchableOpacity
+                    onPress={async () => {
+                      await removeCategory(cat.id);
+                      setIncomeCatsLocal((prev) => prev.filter((c) => c.id !== cat.id));
+                    }}>
+                    <Text style={{ color: '#FF4444', fontSize: 18, fontWeight: '700' }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              <TouchableOpacity
+                onPress={async () => {
+                  const uid = user?.id;
+                  if (!uid) {
+                    Alert.alert('Sin sesión', 'Iniciá sesión para agregar categorías.');
+                    return;
+                  }
+                  const nueva = await db.addCategoryWithTipo(uid, 'Nueva categoría', '📦', 'ingreso');
+                  const row = {
+                    id: nueva.id,
+                    nombre: nueva.nombre,
+                    emoji: nueva.emoji,
+                    orden: nueva.orden,
+                  };
+                  setIncomeCatsLocal((prev) => [...prev, row]);
+                  useFinanceStore.setState((s) => ({ incomeCategories: [...s.incomeCategories, row] }));
+                }}
+                style={{
+                  borderWidth: 1,
+                  borderColor: T.primary,
+                  borderRadius: 12,
+                  padding: 12,
+                  alignItems: 'center',
+                  marginTop: 4,
+                  marginBottom: 12,
+                  borderStyle: 'dashed',
+                }}>
+                <Text style={{ color: T.primary, fontSize: 14, fontFamily: Font.jakarta600 }}>
+                  + Agregar categoría de ingreso
+                </Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={[
                   {

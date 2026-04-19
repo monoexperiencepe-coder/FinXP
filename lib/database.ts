@@ -413,20 +413,41 @@ export async function getMissions(userId: string) {
   return data ?? [];
 }
 
-export async function getCategories(userId: string) {
+export async function getCategoriesByTipo(userId: string, tipo: string) {
   const { data, error } = await supabase
     .from('user_categories')
     .select('*')
     .eq('user_id', userId)
+    .eq('tipo', tipo)
     .order('orden', { ascending: true });
   if (error) throw error;
   return data || [];
 }
 
+/** Categorías de gasto (compat: mismo filtro que antes con columna `tipo`). */
+export async function getCategories(userId: string) {
+  return getCategoriesByTipo(userId, 'gasto');
+}
+
 export async function addCategory(userId: string, nombre: string, emoji: string = '📦', orden: number = 0) {
   const { data, error } = await supabase
     .from('user_categories')
-    .insert({ user_id: userId, nombre, emoji, orden })
+    .insert({ user_id: userId, nombre, emoji, orden, tipo: 'gasto' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function addCategoryWithTipo(
+  userId: string,
+  nombre: string,
+  emoji: string,
+  tipo: 'gasto' | 'ingreso',
+) {
+  const { data, error } = await supabase
+    .from('user_categories')
+    .insert({ user_id: userId, nombre, emoji, tipo, orden: 99 })
     .select()
     .single();
   if (error) throw error;
@@ -450,13 +471,8 @@ export async function deleteCategory(categoryId: string) {
 }
 
 export async function initDefaultCategories(userId: string) {
-  const { data: existing } = await supabase
-    .from('user_categories')
-    .select('id')
-    .eq('user_id', userId)
-    .limit(1);
-
-  if (existing && existing.length > 0) return;
+  const existing = await getCategoriesByTipo(userId, 'gasto');
+  if (existing.length > 0) return;
 
   const defaults = [
     { nombre: 'Alimentación', emoji: '🍔', orden: 0 },
@@ -471,6 +487,25 @@ export async function initDefaultCategories(userId: string) {
   ];
   const { error } = await supabase
     .from('user_categories')
-    .insert(defaults.map((c) => ({ ...c, user_id: userId })));
+    .insert(defaults.map((c) => ({ ...c, user_id: userId, tipo: 'gasto' as const })));
+  if (error) throw error;
+}
+
+export async function initDefaultIncomeCategories(userId: string) {
+  const existing = await getCategoriesByTipo(userId, 'ingreso');
+  if (existing.length > 0) return;
+
+  const defaults = [
+    { nombre: 'Sueldo', emoji: '💰', orden: 1 },
+    { nombre: 'Inversiones', emoji: '📈', orden: 2 },
+    { nombre: 'Préstamos', emoji: '🏦', orden: 3 },
+    { nombre: 'Ventas', emoji: '🛍️', orden: 4 },
+    { nombre: 'Transferencias', emoji: '💸', orden: 5 },
+    { nombre: 'Contenido', emoji: '🎬', orden: 6 },
+    { nombre: 'Otros', emoji: '📦', orden: 7 },
+  ];
+  const { error } = await supabase
+    .from('user_categories')
+    .insert(defaults.map((d) => ({ ...d, user_id: userId, tipo: 'ingreso' as const })));
   if (error) throw error;
 }

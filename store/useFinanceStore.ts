@@ -455,8 +455,10 @@ type FinanceState = {
   lastSync: string | null;
   loadingCategories: boolean;
   categories: { id: string; nombre: string; emoji: string; orden: number }[];
+  incomeCategories: { id: string; nombre: string; emoji: string; orden: number }[];
   loadFromSupabase: () => Promise<void>;
   loadCategories: () => Promise<void>;
+  loadIncomeCategories: () => Promise<void>;
   addCategory: (nombre: string, emoji?: string) => Promise<void>;
   removeCategory: (id: string) => Promise<void>;
   updateCategory: (id: string, nombre: string, emoji: string) => Promise<void>;
@@ -518,8 +520,10 @@ const seedState = (): Omit<
   | 'lastSync'
   | 'loadingCategories'
   | 'categories'
+  | 'incomeCategories'
   | 'loadFromSupabase'
   | 'loadCategories'
+  | 'loadIncomeCategories'
   | 'addCategory'
   | 'removeCategory'
   | 'updateCategory'
@@ -561,6 +565,7 @@ export const useFinanceStore = create<FinanceState>()(
       lastSync: null,
       loadingCategories: false,
       categories: [],
+      incomeCategories: [],
 
       setTheme: (mode) => {
         set({ theme: mode });
@@ -955,6 +960,7 @@ export const useFinanceStore = create<FinanceState>()(
             syncing: false,
             lastSync: new Date().toISOString(),
           });
+          await get().loadIncomeCategories();
         } catch (e) {
           console.error('Error cargando de Supabase:', e);
           set({ syncing: false });
@@ -972,17 +978,35 @@ export const useFinanceStore = create<FinanceState>()(
         set({ loadingCategories: true });
         const db = await import('@/lib/database');
         try {
-          const cats = await db.getCategories(userId);
+          let cats = await db.getCategoriesByTipo(userId, 'gasto');
           if (cats.length === 0) {
             await db.initDefaultCategories(userId);
-            const fresh = await db.getCategories(userId);
-            set({ categories: fresh, loadingCategories: false });
-          } else {
-            set({ categories: cats, loadingCategories: false });
+            cats = await db.getCategoriesByTipo(userId, 'gasto');
           }
+          set({ categories: cats, loadingCategories: false });
         } catch (e) {
           console.error('Error loading categories:', e);
           set({ loadingCategories: false });
+        }
+      },
+
+      loadIncomeCategories: async () => {
+        const userId = useAuthStore.getState().user?.id;
+        if (!userId) return;
+        const db = await import('@/lib/database');
+        try {
+          await db.initDefaultIncomeCategories(userId);
+          const cats = await db.getCategoriesByTipo(userId, 'ingreso');
+          set({
+            incomeCategories: cats.map((c: { id: string; nombre: string; emoji: string; orden: number }) => ({
+              id: c.id,
+              nombre: c.nombre,
+              emoji: c.emoji,
+              orden: c.orden,
+            })),
+          });
+        } catch (e) {
+          console.error('Error loading income categories:', e);
         }
       },
 
@@ -999,7 +1023,10 @@ export const useFinanceStore = create<FinanceState>()(
       removeCategory: async (id) => {
         const db = await import('@/lib/database');
         await db.deleteCategory(id);
-        set((state) => ({ categories: state.categories.filter((c) => c.id !== id) }));
+        set((state) => ({
+          categories: state.categories.filter((c) => c.id !== id),
+          incomeCategories: state.incomeCategories.filter((c) => c.id !== id),
+        }));
       },
 
       updateCategory: async (id, nombre, emoji) => {
@@ -1007,6 +1034,7 @@ export const useFinanceStore = create<FinanceState>()(
         await db.updateCategory(id, nombre, emoji);
         set((state) => ({
           categories: state.categories.map((c) => (c.id === id ? { ...c, nombre, emoji } : c)),
+          incomeCategories: state.incomeCategories.map((c) => (c.id === id ? { ...c, nombre, emoji } : c)),
         }));
       },
 

@@ -108,7 +108,8 @@ export function IncomeSheet({ open, onDismiss }: Props) {
   const addIncomeToSupabase = useFinanceStore((s) => s.addIncomeToSupabase);
   const monedaPrincipal = useFinanceStore((s) => s.profile.monedaPrincipal);
   const profile = useFinanceStore((s) => s.profile);
-  const categories = useFinanceStore((s) => s.categories);
+  const incomeCategories = useFinanceStore((s) => s.incomeCategories);
+  const loadIncomeCategories = useFinanceStore((s) => s.loadIncomeCategories);
 
   const bancosLista = useMemo(() => {
     const list = profile.bancosDisponibles;
@@ -135,7 +136,7 @@ export function IncomeSheet({ open, onDismiss }: Props) {
       setFecha(new Date().toISOString().split('T')[0]);
       setAmount('');
       setBanco(bancosLista[0] ?? '');
-      setCategoria(categories[0]?.nombre ?? '');
+      setCategoria('');
       setDescripcion('');
       Animated.parallel([
         Animated.timing(backdropOpacity, { toValue: 0.55, duration: 220, useNativeDriver: true }),
@@ -154,7 +155,19 @@ export function IncomeSheet({ open, onDismiss }: Props) {
         }
       });
     }
-  }, [backdropOpacity, bancosLista, categories, isVisible, monedaPrincipal, onDismiss, open, translateY]);
+  }, [backdropOpacity, bancosLista, isVisible, monedaPrincipal, onDismiss, open, translateY]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (incomeCategories.length === 0) {
+      void loadIncomeCategories();
+      return;
+    }
+    setCategoria((prev) => {
+      if (prev && incomeCategories.some((c) => c.nombre === prev)) return prev;
+      return incomeCategories[0]?.nombre ?? '';
+    });
+  }, [open, incomeCategories, loadIncomeCategories]);
 
   const dismiss = () => {
     Animated.parallel([
@@ -394,7 +407,7 @@ export function IncomeSheet({ open, onDismiss }: Props) {
             <View style={{ height: 24 }} />
             <Text style={labelStyle}>CATEGORÍA</Text>
             <View className="flex-row flex-wrap">
-              {categories.map((cat) => (
+              {incomeCategories.map((cat) => (
                 <CategoryCell
                   key={cat.id}
                   emoji={cat.emoji}
