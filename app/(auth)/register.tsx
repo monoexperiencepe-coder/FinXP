@@ -2,7 +2,6 @@ import { useRouter, type Href } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -23,19 +22,43 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
 
   const handleRegister = async () => {
-    if (!nombre.trim()) return Alert.alert('Error', 'Ingresa tu nombre');
-    if (!email.trim()) return Alert.alert('Error', 'Ingresa tu email');
-    if (password.length < 6) return Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
-    if (password !== confirm) return Alert.alert('Error', 'Las contraseñas no coinciden');
+    setError('');
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    if (password !== confirm) {
+      setError('Las contraseñas no coinciden');
+      return;
+    }
+    if (!nombre.trim()) {
+      setError('Ingresa tu nombre');
+      return;
+    }
+    if (!email.trim()) {
+      setError('Ingresa tu email');
+      return;
+    }
 
     try {
       await signUp(email.trim(), password, nombre.trim());
+      setError('');
       router.replace('/(auth)/login' as any);
-    } catch (e: any) {
-      console.error('Signup error:', e);
-      Alert.alert('Error', e.message || 'No se pudo crear la cuenta');
+    } catch (err: unknown) {
+      console.error('Signup error:', err);
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e.message?.includes('already registered')) {
+        setError('Este correo ya tiene una cuenta');
+      } else if (e.message?.includes('Password should be')) {
+        setError('La contraseña debe tener al menos 6 caracteres');
+      } else if (e.message?.includes('invalid')) {
+        setError('El correo no es válido');
+      } else {
+        setError('Ocurrió un error al crear la cuenta');
+      }
     }
   };
 
@@ -93,13 +116,29 @@ export default function RegisterScreen() {
                 placeholder={field.placeholder}
                 placeholderTextColor={T.textMuted}
                 value={field.value}
-                onChangeText={field.setter}
+                onChangeText={(val) => {
+                  setError('');
+                  field.setter(val);
+                }}
                 keyboardType={field.type}
                 autoCapitalize={field.type === 'email-address' ? 'none' : 'words'}
                 secureTextEntry={'secure' in field ? field.secure : false}
               />
             </View>
           ))}
+
+          {error ? (
+            <Text
+              style={{
+                color: '#FF4D4D',
+                fontSize: 13,
+                textAlign: 'center',
+                marginBottom: 12,
+                paddingHorizontal: 8,
+              }}>
+              {error}
+            </Text>
+          ) : null}
 
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: T.primary }]}

@@ -161,20 +161,36 @@ export default function ChatIA() {
         pointerEvents="box-none">
         <TouchableOpacity
           onPress={pulsarFAB}
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            backgroundColor: c.primary,
-            alignItems: 'center',
-            justifyContent: 'center',
-            shadowColor: c.primary,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.5,
-            shadowRadius: 8,
-            elevation: 8,
-          }}>
-          <Text style={{ fontSize: 24 }}>✨</Text>
+          style={
+            themeMode === 'dark'
+              ? {
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: '#FFFFFF',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#FFFFFF',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 8,
+                }
+              : {
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: c.primary,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: c.primary,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.5,
+                  shadowRadius: 8,
+                  elevation: 8,
+                }
+          }>
+          <Text style={{ fontSize: 22, color: themeMode === 'dark' ? '#0A0B1E' : '#FFFFFF' }}>✨</Text>
         </TouchableOpacity>
       </Animated.View>
 

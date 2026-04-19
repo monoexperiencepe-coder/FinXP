@@ -22,25 +22,48 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'password' | 'magic'>('password');
+  const [error, setError] = useState('');
 
   const handleSignIn = async () => {
-    if (!email.trim()) return Alert.alert('Error', 'Ingresa tu email');
+    setError('');
+    if (!email.trim()) {
+      setError('Ingresa tu email');
+      return;
+    }
     try {
       await signIn(email.trim(), password);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'No se pudo iniciar sesión';
-      Alert.alert('Error', msg);
+      setError('');
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e.message?.includes('Invalid login credentials')) {
+        setError('Usuario o contraseña incorrectos');
+      } else if (e.message?.includes('Email not confirmed')) {
+        setError('Confirma tu correo antes de ingresar');
+      } else if (e.message?.includes('Too many requests')) {
+        setError('Demasiados intentos. Espera unos minutos');
+      } else {
+        setError('Ocurrió un error. Intenta de nuevo');
+      }
     }
   };
 
   const handleMagicLink = async () => {
-    if (!email.trim()) return Alert.alert('Error', 'Ingresa tu email');
+    setError('');
+    if (!email.trim()) {
+      setError('Ingresa tu email');
+      return;
+    }
     try {
       await sendMagicLink(email.trim());
+      setError('');
       Alert.alert('¡Revisa tu email!', 'Te enviamos un enlace mágico para entrar sin contraseña 🪄');
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Error';
-      Alert.alert('Error', msg);
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e.message?.includes('Too many requests')) {
+        setError('Demasiados intentos. Espera unos minutos');
+      } else {
+        setError('Ocurrió un error. Intenta de nuevo');
+      }
     }
   };
 
@@ -68,7 +91,10 @@ export default function LoginScreen() {
             placeholder="tu@email.com"
             placeholderTextColor={T.textMuted}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(val) => {
+              setError('');
+              setEmail(val);
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -83,10 +109,26 @@ export default function LoginScreen() {
               placeholder="Contraseña"
               placeholderTextColor={T.textMuted}
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(val) => {
+                setError('');
+                setPassword(val);
+              }}
               secureTextEntry
             />
           )}
+
+          {error ? (
+            <Text
+              style={{
+                color: '#FF4D4D',
+                fontSize: 13,
+                textAlign: 'center',
+                marginBottom: 12,
+                paddingHorizontal: 8,
+              }}>
+              {error}
+            </Text>
+          ) : null}
 
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: T.primary }]}
@@ -99,7 +141,12 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.switchMode} onPress={() => setMode(mode === 'password' ? 'magic' : 'password')}>
+          <TouchableOpacity
+            style={styles.switchMode}
+            onPress={() => {
+              setError('');
+              setMode(mode === 'password' ? 'magic' : 'password');
+            }}>
             <Text style={[styles.switchText, { color: T.secondary }]}>
               {mode === 'password' ? '🪄 Usar Magic Link' : '🔑 Usar contraseña'}
             </Text>
