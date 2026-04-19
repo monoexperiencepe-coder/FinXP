@@ -14,10 +14,10 @@ module.exports = async function handler(req, res) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.status(500).json({ error: 'Falta ANTHROPIC_API_KEY' });
   }
-  if (!process.env.EXPO_PUBLIC_SUPABASE_URL) {
+  if (!process.env.SUPABASE_URL) {
     return res.status(500).json({ error: 'Falta SUPABASE_URL' });
   }
-  if (!process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+  if (!process.env.SUPABASE_ANON_KEY) {
     return res.status(500).json({ error: 'Falta SUPABASE_ANON_KEY' });
   }
 
@@ -49,8 +49,8 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_ANON_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
   try {
