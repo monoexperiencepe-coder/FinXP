@@ -470,42 +470,47 @@ export async function deleteCategory(categoryId: string) {
   if (error) throw error;
 }
 
+const GASTOS_DEFAULT = [
+  { nombre: 'Alimentación', emoji: '🍔', orden: 1 },
+  { nombre: 'Transporte', emoji: '🚌', orden: 2 },
+  { nombre: 'Entretenimiento', emoji: '🎮', orden: 3 },
+  { nombre: 'Salud', emoji: '💊', orden: 4 },
+  { nombre: 'Ropa', emoji: '👕', orden: 5 },
+  { nombre: 'Servicios', emoji: '💡', orden: 6 },
+  { nombre: 'Mascotas', emoji: '🐾', orden: 7 },
+  { nombre: 'Otros', emoji: '📦', orden: 8 },
+];
+
+const INGRESOS_DEFAULT = [
+  { nombre: 'Sueldo', emoji: '💰', orden: 1 },
+  { nombre: 'Inversiones', emoji: '📈', orden: 2 },
+  { nombre: 'Préstamos', emoji: '🏦', orden: 3 },
+  { nombre: 'Ventas', emoji: '🛍️', orden: 4 },
+  { nombre: 'Transferencias', emoji: '💸', orden: 5 },
+  { nombre: 'Contenido', emoji: '🎬', orden: 6 },
+  { nombre: 'Otros', emoji: '📦', orden: 7 },
+];
+
+/** Inserta solo las categorías de gasto predeterminadas que aún no existen (por nombre). */
 export async function initDefaultCategories(userId: string) {
   const existing = await getCategoriesByTipo(userId, 'gasto');
-  if (existing.length > 0) return;
-
-  const defaults = [
-    { nombre: 'Alimentación', emoji: '🍔', orden: 0 },
-    { nombre: 'Transporte', emoji: '🚌', orden: 1 },
-    { nombre: 'Entretenimiento', emoji: '🎮', orden: 2 },
-    { nombre: 'Salud', emoji: '💊', orden: 3 },
-    { nombre: 'Ropa', emoji: '👕', orden: 4 },
-    { nombre: 'Educación', emoji: '📚', orden: 5 },
-    { nombre: 'Hogar', emoji: '🏠', orden: 6 },
-    { nombre: 'Servicios', emoji: '💡', orden: 7 },
-    { nombre: 'Otros', emoji: '📦', orden: 8 },
-  ];
-  const { error } = await supabase
-    .from('user_categories')
-    .insert(defaults.map((c) => ({ ...c, user_id: userId, tipo: 'gasto' as const })));
+  const nombres = new Set(existing.map((r: { nombre: string }) => r.nombre));
+  const faltantes = GASTOS_DEFAULT.filter((d) => !nombres.has(d.nombre));
+  if (faltantes.length === 0) return;
+  const { error } = await supabase.from('user_categories').insert(
+    faltantes.map((c) => ({ ...c, user_id: userId, tipo: 'gasto' as const })),
+  );
   if (error) throw error;
 }
 
+/** Inserta solo las categorías de ingreso predeterminadas que aún no existen (por nombre). */
 export async function initDefaultIncomeCategories(userId: string) {
   const existing = await getCategoriesByTipo(userId, 'ingreso');
-  if (existing.length > 0) return;
-
-  const defaults = [
-    { nombre: 'Sueldo', emoji: '💰', orden: 1 },
-    { nombre: 'Inversiones', emoji: '📈', orden: 2 },
-    { nombre: 'Préstamos', emoji: '🏦', orden: 3 },
-    { nombre: 'Ventas', emoji: '🛍️', orden: 4 },
-    { nombre: 'Transferencias', emoji: '💸', orden: 5 },
-    { nombre: 'Contenido', emoji: '🎬', orden: 6 },
-    { nombre: 'Otros', emoji: '📦', orden: 7 },
-  ];
-  const { error } = await supabase
-    .from('user_categories')
-    .insert(defaults.map((d) => ({ ...d, user_id: userId, tipo: 'ingreso' as const })));
+  const nombres = new Set(existing.map((r: { nombre: string }) => r.nombre));
+  const faltantes = INGRESOS_DEFAULT.filter((d) => !nombres.has(d.nombre));
+  if (faltantes.length === 0) return;
+  const { error } = await supabase.from('user_categories').insert(
+    faltantes.map((d) => ({ ...d, user_id: userId, tipo: 'ingreso' as const })),
+  );
   if (error) throw error;
 }

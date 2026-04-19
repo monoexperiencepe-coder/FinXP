@@ -115,6 +115,7 @@ export default function PerfilScreen() {
   const categories = useFinanceStore((s) => s.categories);
   const incomeCategories = useFinanceStore((s) => s.incomeCategories);
   const loadIncomeCategories = useFinanceStore((s) => s.loadIncomeCategories);
+  const loadCategories = useFinanceStore((s) => s.loadCategories);
 
   const setMonedaPrincipal = useFinanceStore((s) => s.setMonedaPrincipal);
   const setTipoDeCambio = useFinanceStore((s) => s.setTipoDeCambio);
@@ -160,7 +161,23 @@ export default function PerfilScreen() {
 
   useEffect(() => {
     if (openSection !== 'presupuesto') return;
-    void loadIncomeCategories();
+    const uid = user?.id;
+    if (uid) {
+      void (async () => {
+        try {
+          if (categories.length === 0) {
+            await db.initDefaultCategories(uid);
+            await loadCategories();
+          }
+          if (incomeCategories.length === 0) {
+            await db.initDefaultIncomeCategories(uid);
+            await loadIncomeCategories();
+          }
+        } catch (e) {
+          console.error('init default categories:', e);
+        }
+      })();
+    }
     const mesActual = new Date().toISOString().slice(0, 7);
     const fromStore: Record<string, string> = {};
     budgets.forEach((b) => {
@@ -168,7 +185,6 @@ export default function PerfilScreen() {
     });
     setBudgetAmounts((prev) => ({ ...fromStore, ...prev }));
 
-    const uid = user?.id;
     if (!uid) return;
 
     let cancelled = false;
@@ -189,7 +205,15 @@ export default function PerfilScreen() {
     return () => {
       cancelled = true;
     };
-  }, [openSection, user?.id, budgets, loadIncomeCategories]);
+  }, [
+    openSection,
+    user?.id,
+    budgets,
+    categories.length,
+    incomeCategories.length,
+    loadCategories,
+    loadIncomeCategories,
+  ]);
 
   const initial = useMemo(
     () => (profile.nombreUsuario || 'U').trim().charAt(0).toUpperCase() || '?',

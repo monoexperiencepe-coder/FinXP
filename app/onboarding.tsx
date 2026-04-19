@@ -14,21 +14,30 @@ import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
 const BANCOS_DEFAULT = DEFAULT_BANCOS_DISPONIBLES;
 
 const CATEGORIAS_DEFAULT = [
-  { id: 'alimentacion', nombre: 'Alimentación', emoji: '🍔' },
-  { id: 'transporte', nombre: 'Transporte', emoji: '🚌' },
-  { id: 'entretenimiento', nombre: 'Entretenimiento', emoji: '🎮' },
-  { id: 'salud', nombre: 'Salud', emoji: '💊' },
-  { id: 'ropa', nombre: 'Ropa', emoji: '👕' },
-  { id: 'educacion', nombre: 'Educación', emoji: '📚' },
-  { id: 'hogar', nombre: 'Hogar', emoji: '🏠' },
-  { id: 'servicios', nombre: 'Servicios', emoji: '💡' },
-  { id: 'otros', nombre: 'Otros', emoji: '📦' },
+  { id: '1', nombre: 'Alimentación', emoji: '🍔' },
+  { id: '2', nombre: 'Transporte', emoji: '🚌' },
+  { id: '3', nombre: 'Entretenimiento', emoji: '🎮' },
+  { id: '4', nombre: 'Salud', emoji: '💊' },
+  { id: '5', nombre: 'Ropa', emoji: '👕' },
+  { id: '6', nombre: 'Servicios', emoji: '💡' },
+  { id: '7', nombre: 'Mascotas', emoji: '🐾' },
+  { id: '8', nombre: 'Otros', emoji: '📦' },
+];
+
+const INCOME_CATEGORIAS_DEFAULT = [
+  { id: '1', nombre: 'Sueldo', emoji: '💰' },
+  { id: '2', nombre: 'Inversiones', emoji: '📈' },
+  { id: '3', nombre: 'Préstamos', emoji: '🏦' },
+  { id: '4', nombre: 'Ventas', emoji: '🛍️' },
+  { id: '5', nombre: 'Transferencias', emoji: '💸' },
+  { id: '6', nombre: 'Contenido', emoji: '🎬' },
+  { id: '7', nombre: 'Otros', emoji: '📦' },
 ];
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { loadFromSupabase, loadCategories, profile } = useFinanceStore();
+  const { loadFromSupabase, loadCategories, loadIncomeCategories, profile } = useFinanceStore();
   const [step, setStep] = useState(0);
 
   const [nombreUsuario, setNombreUsuario] = useState('');
@@ -48,11 +57,12 @@ export default function OnboardingScreen() {
 
   const [presupuestos, setPresupuestos] = useState<Record<string, string>>({});
   const [categoriasList, setCategoriasList] = useState(CATEGORIAS_DEFAULT);
+  const [incomeCategoriasList, setIncomeCategoriasList] = useState(INCOME_CATEGORIAS_DEFAULT);
   const [newCatName, setNewCatName] = useState('');
   const [showCatInput, setShowCatInput] = useState(false);
   const [showLoader, setShowLoader] = useState(false);
 
-  const totalSteps = 4;
+  const totalSteps = 5;
 
   const handleAddCat = () => {
     if (!newCatName.trim()) return;
@@ -127,7 +137,7 @@ export default function OnboardingScreen() {
 
       const { supabase } = await import('@/lib/supabase');
 
-      await supabase.from('user_categories').delete().eq('user_id', user.id);
+      await supabase.from('user_categories').delete().eq('user_id', user.id).eq('tipo', 'gasto');
 
       await supabase.from('user_categories').insert(
         categoriasList.map((c, i) => ({
@@ -138,6 +148,20 @@ export default function OnboardingScreen() {
           tipo: 'gasto' as const,
         })),
       );
+
+      await supabase.from('user_categories').delete().eq('user_id', user.id).eq('tipo', 'ingreso');
+
+      for (let idx = 0; idx < incomeCategoriasList.length; idx++) {
+        const cat = incomeCategoriasList[idx];
+        const { error: incomeErr } = await supabase.from('user_categories').insert({
+          user_id: user.id,
+          nombre: cat.nombre,
+          emoji: cat.emoji,
+          tipo: 'ingreso',
+          orden: idx + 1,
+        });
+        if (incomeErr) throw incomeErr;
+      }
 
       const mesActual = new Date().toISOString().slice(0, 7);
       const budgetPromises = Object.entries(presupuestos)
@@ -150,6 +174,7 @@ export default function OnboardingScreen() {
       useFinanceStore.setState({ categories: [] });
       await loadFromSupabase();
       await loadCategories();
+      await loadIncomeCategories();
 
       setShowLoader(true);
     } catch (e) {
@@ -498,10 +523,101 @@ export default function OnboardingScreen() {
             <TouchableOpacity onPress={() => setStep(2)}>
               <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]} onPress={handleFinish}>
-              <Text style={styles.btnText}>¡Empezar! 🚀</Text>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: T.primary, flex: 1, marginLeft: 12 }]} onPress={() => setStep(4)}>
+              <Text style={styles.btnText}>Continuar →</Text>
             </TouchableOpacity>
           </View>
+        </ScrollView>
+      )}
+
+      {/* PASO 4 — Categorías de ingresos */}
+      {step === 4 && (
+        <ScrollView contentContainerStyle={[styles.slide, { paddingBottom: 40 }]} showsVerticalScrollIndicator={false}>
+          <View style={[styles.navRow, { marginBottom: 4 }]}>
+            <TouchableOpacity onPress={() => setStep(3)}>
+              <Text style={[styles.backText, { color: T.textMuted }]}>← Atrás</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.title, { fontSize: 28, color: T.textPrimary }]}>Tus fuentes de ingreso 💰</Text>
+          <Text style={[styles.subtitle, { color: T.textSecondary }]}>
+            ¿De dónde viene tu dinero? Personaliza tus categorías de ingreso.
+          </Text>
+
+          <View style={{ gap: 10, width: '100%' }}>
+            {incomeCategoriasList.map((cat) => (
+              <View
+                key={cat.id}
+                style={[styles.budgetRow, { backgroundColor: T.card, borderColor: T.glassBorder, flexWrap: 'wrap' }]}>
+                <TextInput
+                  value={cat.emoji}
+                  onChangeText={(val) =>
+                    setIncomeCategoriasList((prev) =>
+                      prev.map((c) => (c.id === cat.id ? { ...c, emoji: val } : c)),
+                    )
+                  }
+                  style={{
+                    width: 40,
+                    height: 40,
+                    fontSize: 22,
+                    textAlign: 'center',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: T.glassBorder,
+                    color: T.textPrimary,
+                  }}
+                  maxLength={2}
+                />
+                <TextInput
+                  value={cat.nombre}
+                  onChangeText={(val) =>
+                    setIncomeCategoriasList((prev) =>
+                      prev.map((c) => (c.id === cat.id ? { ...c, nombre: val } : c)),
+                    )
+                  }
+                  style={{
+                    flex: 1,
+                    minWidth: 120,
+                    color: T.textPrimary,
+                    fontSize: 15,
+                    backgroundColor: 'transparent',
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={() => setIncomeCategoriasList((prev) => prev.filter((c) => c.id !== cat.id))}
+                  style={{ paddingLeft: 8 }}>
+                  <Text style={{ color: '#FF4444', fontSize: 20, fontWeight: '700' }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            onPress={() =>
+              setIncomeCategoriasList((prev) => [
+                ...prev,
+                { id: Date.now().toString(), nombre: 'Nueva categoría', emoji: '📦' },
+              ])
+            }
+            style={{
+              borderWidth: 1,
+              borderColor: T.primary,
+              borderRadius: 12,
+              padding: 14,
+              alignItems: 'center',
+              marginTop: 4,
+              marginBottom: 8,
+              borderStyle: 'dashed',
+              width: '100%',
+            }}>
+            <Text style={{ color: T.primary, fontSize: 14, fontWeight: '600' }}>+ Agregar categoría</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.btn, { backgroundColor: T.primary, width: '100%' }]}
+            onPress={handleFinish}>
+            <Text style={styles.btnText}>¡Empezar a ahorrar! 🚀</Text>
+          </TouchableOpacity>
         </ScrollView>
       )}
 
