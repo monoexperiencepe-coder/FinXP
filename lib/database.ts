@@ -257,8 +257,8 @@ export function rowToMission(r: {
 export type ExpenseDbRow = Parameters<typeof rowToExpense>[0];
 export type IncomeDbRow = Parameters<typeof rowToIncome>[0];
 
+/** `user_profiles` usa `id` como PK (mismo UUID que `auth.users.id`), no `user_id`. */
 export async function getProfile(userId: string): Promise<UserProfileRow | null> {
-  // select('*') incluye nombre_usuario y el resto de columnas de user_profiles
   const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).maybeSingle();
   if (error) throw error;
   return data as UserProfileRow | null;
@@ -266,6 +266,7 @@ export async function getProfile(userId: string): Promise<UserProfileRow | null>
 
 export async function updateProfile(userId: string, updates: UserProfileRowPatch) {
   const payload = { id: userId, ...updates } as Record<string, unknown>;
+  if ('user_id' in payload) delete (payload as { user_id?: unknown }).user_id;
   const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'id' });
   if (error) throw error;
 }

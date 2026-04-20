@@ -44,6 +44,7 @@ export default function RegisterScreen() {
     }
 
     try {
+      // signUp persiste nombre en user_profiles con columna id (= auth user id), no user_id (useAuthStore).
       await signUp(email.trim(), password, nombre.trim());
       setError('');
       router.replace('/(auth)/login' as any);

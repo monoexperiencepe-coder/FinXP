@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 
-import * as db from '@/lib/database';
 import { supabase } from '@/lib/supabase';
 
 interface AuthState {
@@ -66,7 +65,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (error) throw error;
       const uid = data.user?.id;
       if (uid && nombre) {
-        await db.updateProfile(uid, { nombre_usuario: nombre });
+        const { error: profileErr } = await supabase.from('user_profiles').upsert(
+          { id: uid, nombre_usuario: nombre },
+          { onConflict: 'id' },
+        );
+        if (profileErr) console.error('user_profiles upsert (registro):', profileErr);
       }
     } finally {
       set({ loading: false });
