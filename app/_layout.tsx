@@ -15,12 +15,13 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import '../global.css';
 
+import { AppPreloader } from '@/components/AppPreloader';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -35,6 +36,9 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [introDone, setIntroDone] = useState(false);
+  const onIntroFinish = useCallback(() => setIntroDone(true), []);
+
   const themeMode = useFinanceStore((s) => s.theme);
   const T = themeMode === 'dark' ? darkTheme : lightTheme;
 
@@ -193,6 +197,9 @@ export default function RootLayout() {
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         </Stack>
+        {loaded && initialized && !introDone ? (
+          <AppPreloader theme={T} onFinish={onIntroFinish} />
+        ) : null}
       </ThemeProvider>
     </GestureHandlerRootView>
   );
