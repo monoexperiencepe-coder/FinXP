@@ -1,9 +1,11 @@
-import React from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useEffect, useState } from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Tabs } from 'expo-router';
 import { View } from 'react-native';
 
 import ChatIA from '@/components/ChatIA';
+import PremiumTeaser, { PREMIUM_TEASER_KEY } from '@/components/PremiumTeaser';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import { Font } from '@/constants/typography';
@@ -19,6 +21,20 @@ function TabBarIcon(props: {
 export default function TabLayout() {
   const isDark = useFinanceStore((s) => s.theme === 'dark');
   const T = isDark ? darkTheme : lightTheme;
+  const [showTeaser, setShowTeaser] = useState(false);
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout>;
+    // Remove the key so it always shows during development
+    AsyncStorage.removeItem(PREMIUM_TEASER_KEY).then(() =>
+      AsyncStorage.getItem(PREMIUM_TEASER_KEY).then((val) => {
+        if (!val) {
+          t = setTimeout(() => setShowTeaser(true), 1500);
+        }
+      }),
+    );
+    return () => clearTimeout(t);
+  }, []);
 
   return (
     <View style={{ flex: 1 }}>
@@ -89,6 +105,7 @@ export default function TabLayout() {
         />
       </Tabs>
       <ChatIA />
+      <PremiumTeaser visible={showTeaser} onClose={() => setShowTeaser(false)} />
     </View>
   );
 }

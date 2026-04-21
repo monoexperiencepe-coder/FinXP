@@ -145,16 +145,6 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.switchMode}
-            onPress={() => {
-              setError('');
-              setMode(mode === 'password' ? 'magic' : 'password');
-            }}>
-            <Text style={[styles.switchText, { color: T.secondary }]}>
-              {mode === 'password' ? '🪄 Usar Magic Link' : '🔑 Usar contraseña'}
-            </Text>
-          </TouchableOpacity>
         </View>
 
         <TouchableOpacity onPress={() => router.push('/(auth)/register' as Href)}>
