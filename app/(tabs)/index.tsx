@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, G } from 'react-native-svg';
 
 import { ExpenseFullSheet } from '@/components/ExpenseFullSheet';
+import { FirstExpenseWalletModal, markFirstExpenseWalletSkipped, shouldShowFirstExpenseWallet } from '@/components/FirstExpenseWalletModal';
 import { IncomeSheet } from '@/components/IncomeSheet';
 import { Card } from '@/components/ui/Card';
 import { GradientView } from '@/components/ui/GradientView';
@@ -103,6 +104,7 @@ export default function HomeScreen() {
   const session = useAuthStore((s) => s.session);
   const [expenseSheetOpen, setExpenseSheetOpen] = useState(false);
   const [incomeSheetOpen, setIncomeSheetOpen] = useState(false);
+  const [firstWalletModalOpen, setFirstWalletModalOpen] = useState(false);
 
   useEffect(() => {
     if (session) {
@@ -111,6 +113,29 @@ export default function HomeScreen() {
       });
     }
   }, [session]);
+
+  const openExpenseFlow = useCallback(async () => {
+    if (expenses.length > 0) {
+      setExpenseSheetOpen(true);
+      return;
+    }
+    if (await shouldShowFirstExpenseWallet()) {
+      setFirstWalletModalOpen(true);
+      return;
+    }
+    setExpenseSheetOpen(true);
+  }, [expenses.length]);
+
+  const handleFirstWalletComplete = useCallback(() => {
+    setFirstWalletModalOpen(false);
+    setExpenseSheetOpen(true);
+  }, []);
+
+  const handleFirstWalletSkip = useCallback(async () => {
+    await markFirstExpenseWalletSkipped();
+    setFirstWalletModalOpen(false);
+    setExpenseSheetOpen(true);
+  }, []);
 
   const initial = useMemo(() => (profile.nombreUsuario?.trim()?.charAt(0) || 'U').toUpperCase(), [profile.nombreUsuario]);
   const mesActual = new Date().toISOString().slice(0, 7);
@@ -310,7 +335,7 @@ export default function HomeScreen() {
           </Card>
 
           <Pressable
-            onPress={() => setExpenseSheetOpen(true)}
+            onPress={() => void openExpenseFlow()}
             style={{
               width: '100%',
               marginTop: 20,
@@ -413,6 +438,11 @@ export default function HomeScreen() {
           </View>
         </ScrollView>
 
+        <FirstExpenseWalletModal
+          visible={firstWalletModalOpen}
+          onComplete={handleFirstWalletComplete}
+          onSkip={handleFirstWalletSkip}
+        />
         <ExpenseFullSheet open={expenseSheetOpen} onDismiss={() => setExpenseSheetOpen(false)} />
         <IncomeSheet open={incomeSheetOpen} onDismiss={() => setIncomeSheetOpen(false)} />
       </View>

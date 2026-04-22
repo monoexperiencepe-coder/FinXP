@@ -1,22 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Easing,
-  Image,
+  InteractionManager,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
 import LoaderTransicion from '@/components/LoaderTransicion';
-import { darkTheme as T } from '@/constants/theme';
+import { darkTheme, lightTheme } from '@/constants/theme';
 import * as db from '@/lib/database';
 import { createId } from '@/lib/ids';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -26,19 +29,30 @@ import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
 // ─── Payment / Currency options ────────────────────────────────────────────────
 
 const DEFAULT_PAYMENT_OPTIONS = [
-  'Efectivo', 'Yape', 'Plin', 'Suscripciones', 'Crédito', 'BIM', 'Transferencia',
+  'Efectivo', 'Yape', 'Plin', 'Tarjeta de débito', 'Tarjeta de crédito', 'BIM', 'Transferencia',
 ];
 
 const PAYMENT_EMOJI: Record<string, string> = {
   'Efectivo': '💵', 'Yape': '💜', 'Plin': '💙',
-  'Suscripciones': '📺', 'Crédito': '🏦', 'BIM': '📲', 'Transferencia': '↔️',
+  'Tarjeta de débito': '💳', 'Tarjeta de crédito': '🏦', 'BIM': '📲', 'Transferencia': '↔️',
 };
-const NETFLIX_LOGO = require('@/assets/images/netflix.png');
+
+const LEGACY_PAYMENT_METHOD_MAP: Record<string, string> = {
+  Suscripciones: 'Tarjeta de débito',
+  Crédito: 'Tarjeta de crédito',
+};
+
+const normalizePaymentMethodName = (name: string) => LEGACY_PAYMENT_METHOD_MAP[name] ?? name;
 
 const BANK_EMOJI: Record<string, string> = {
   'BCP': '🔵', 'Scotiabank': '🔴', 'Interbank': '🟠',
   'BBVA': '🟦', 'Banco Pichincha': '🟢', 'BanBif': '🟣', 'Mibanco': '🟡',
 };
+
+/** Solo estos 4 en pantalla; el resto de `DEFAULT_BANCOS_DISPONIBLES` va en “Más bancos”. */
+const ONBOARDING_BANCOS_PRINCIPALES: readonly string[] = ['BCP', 'Scotiabank', 'Interbank', 'BBVA'];
+const ONBOARDING_BANCOS_PRINCIPALES_SET = new Set(ONBOARDING_BANCOS_PRINCIPALES);
+const ONBOARDING_BANCOS_MAS = DEFAULT_BANCOS_DISPONIBLES.filter((b) => !ONBOARDING_BANCOS_PRINCIPALES_SET.has(b));
 
 type CurrencyOption = { code: MonedaCode; symbol: string; name: string; flag: string };
 const CURRENCY_OPTIONS: CurrencyOption[] = [
@@ -69,6 +83,7 @@ const ALL_BUDGET_CATS = [
   { id: 'servicios',     nombre: 'Servicios',    emoji: '💡' },
   { id: 'suscripciones', nombre: 'Suscripciones',emoji: '📱' },
   { id: 'ocio',          nombre: 'Ocio',         emoji: '🎬' },
+  { id: 'pareja',        nombre: 'Pareja',       emoji: '💑' },
   { id: 'ropa',          nombre: 'Ropa',         emoji: '👕' },
   { id: 'educacion',     nombre: 'Educación',    emoji: '📚' },
   { id: 'mascotas',      nombre: 'Mascotas',     emoji: '🐾' },
@@ -80,29 +95,29 @@ const ALL_BUDGET_CATS = [
 type BudgetCatEntry = { id: string; nombre: string; emoji: string };
 const BASE_BUDGET_IDS = ['comida', 'vivienda', 'transporte'] as const;
 
-// ─── Smart recommendations per salary tier ────────────────────────────────────
-
-const SALARY_RECOMMENDED: Record<SalarioId, string[]> = {
-  basico: ['comida', 'vivienda', 'transporte', 'servicios', 'salud'],
-  junior: ['comida', 'vivienda', 'transporte', 'servicios', 'salud', 'suscripciones', 'ocio'],
-  medio:  ['comida', 'vivienda', 'transporte', 'servicios', 'salud', 'suscripciones', 'ocio', 'ropa', 'mascotas'],
-  senior: ['comida', 'vivienda', 'transporte', 'servicios', 'salud', 'suscripciones', 'ocio', 'ropa', 'educacion', 'viajes', 'mascotas'],
-  alto:   ['comida', 'vivienda', 'transporte', 'servicios', 'salud', 'suscripciones', 'ocio', 'ropa', 'educacion', 'viajes', 'gaming', 'mascotas'],
-  custom: [...BASE_BUDGET_IDS],
-};
-
-const SALARY_BUDGET_PCT: Record<SalarioId, Partial<Record<string, number>>> = {
-  basico: { comida: 0.32, vivienda: 0.28, transporte: 0.14, servicios: 0.09, salud: 0.07 }, // 10% ahorro
-  junior: { comida: 0.28, vivienda: 0.27, transporte: 0.13, servicios: 0.08, salud: 0.07, suscripciones: 0.03, ocio: 0.04 }, // 10% ahorro
-  medio:  { comida: 0.23, vivienda: 0.28, transporte: 0.10, servicios: 0.07, salud: 0.06, suscripciones: 0.04, ocio: 0.04, ropa: 0.04, mascotas: 0.02 }, // 12% ahorro
-  senior: { comida: 0.18, vivienda: 0.27, transporte: 0.08, servicios: 0.07, salud: 0.05, suscripciones: 0.04, ocio: 0.05, ropa: 0.04, educacion: 0.04, viajes: 0.06, mascotas: 0.02 }, // 10% ahorro
-  alto:   { comida: 0.14, vivienda: 0.24, transporte: 0.07, servicios: 0.06, salud: 0.05, suscripciones: 0.04, ocio: 0.05, ropa: 0.04, educacion: 0.05, viajes: 0.10, gaming: 0.03, mascotas: 0.02 }, // 15% ahorro
-  custom: { comida: 0.30, vivienda: 0.30, transporte: 0.20 }, // 20% ahorro
-};
+// ─── Mediana por rango (modal de ingreso aproximado) ───────────────────────────
 
 const SALARY_MEDIAN: Record<SalarioId, number> = {
   basico: 850, junior: 1800, medio: 4000, senior: 9000, alto: 15000, custom: 3000,
 };
+
+/** Perfil breve (paso 2): contexto para sugerencias futuras en la app (p. ej. presupuestos en inicio). */
+type OnboardingLifeSituationId =
+  | ''
+  | 'dependiente'
+  | 'independiente'
+  | 'estudiante'
+  | 'emprendedor'
+  | 'mixto';
+
+const LIFE_SITUATION_OPTIONS: { id: OnboardingLifeSituationId; label: string }[] = [
+  { id: '', label: 'Prefiero no decir' },
+  { id: 'dependiente', label: 'Empleado/a' },
+  { id: 'independiente', label: 'Independiente' },
+  { id: 'estudiante', label: 'Estudiante' },
+  { id: 'emprendedor', label: 'Emprendedor/a' },
+  { id: 'mixto', label: 'Combinación' },
+];
 
 // ─── Income categories ─────────────────────────────────────────────────────────
 
@@ -118,17 +133,87 @@ const INCOME_CATEGORIAS_DEFAULT = [
 
 // ─── Step metadata ─────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ['Bienvenida', 'Mis ingresos', 'Tu perfil', 'Gastos', 'Presupuestos', 'Fuentes'];
-const TOTAL_STEPS = 6;
+const STEP_LABELS = [
+  'Bienvenida',
+  'Tu perfil',
+  'Mis ingresos',
+  'Gastos del mes',
+  'Fuentes',
+];
+const TOTAL_STEPS = 5;
 const TIPO_CAMBIO_DEFAULT = 3.75;
+
+/** Paso 0: mini-cards de contexto (orden: magnitud → creencia → oportunidad). */
+type OnboardingStatCard = {
+  id: string;
+  eyebrow: string;
+  value: string;
+  description: string;
+  accent?: boolean;
+  footer?: string;
+  /** Barra superior en gradiente (color → transparente). */
+  barColors: readonly [string, string];
+};
+
+const ONBOARDING_STAT_CARDS: OnboardingStatCard[] = [
+  {
+    id: 'leak',
+    eyebrow: 'Realidad',
+    value: '68%',
+    description: 'Del sueldo desaparece\nsin explicación.',
+    barColors: ['rgba(0,212,255,0.95)', 'rgba(0,212,255,0)'],
+  },
+  {
+    id: 'myth',
+    eyebrow: 'Creencia común',
+    value: '8 de 10',
+    description: 'Creen que ganando más\nahorrarán más.',
+    footer: 'Spoiler: no.',
+    barColors: ['rgba(200,184,255,0.9)', 'rgba(200,184,255,0)'],
+  },
+  {
+    id: 'elite',
+    eyebrow: 'Oportunidad',
+    value: 'Solo 8%',
+    description: 'Ahorra de forma profesional.\nSé del grupo.',
+    accent: true,
+    barColors: ['#C4B5FD', 'rgba(196,181,253,0)'],
+  },
+];
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  /** Ancho útil bajo el padding horizontal de `S.slide` (24×2). */
+  const gastosGridInnerW = windowWidth - 48;
+  /** Espacio horizontal entre chips (columnas), ajustado al ancho de celda. */
+  const GASTOS_COL_GAP_H = 4;
+  /** Más aire entre filas de chips (sin abrir tanto el hueco lateral). */
+  const GASTOS_ROW_GAP_V = 11;
+  /** 4 columnas en pantallas medianas+ → menos filas y altura. */
+  const GASTOS_COL_COUNT = windowWidth >= 380 ? 4 : 3;
+  const gastosColWidth =
+    (gastosGridInnerW - GASTOS_COL_GAP_H * (GASTOS_COL_COUNT - 1)) / GASTOS_COL_COUNT;
   const { user } = useAuthStore();
   const { loadFromSupabase, profile } = useFinanceStore();
+  const statCardsStacked = windowWidth < 420;
+  const statCardEnterAnim = useRef(
+    ONBOARDING_STAT_CARDS.map(() => ({
+      opacity: new Animated.Value(0),
+      translateY: new Animated.Value(18),
+    })),
+  ).current;
 
+  // ── Gastos step: per-chip reveal + glow ─────────────────────────────────
+  const catChipAnims = useRef(
+    ALL_BUDGET_CATS.map(() => ({
+      opacity:    new Animated.Value(0),
+      scale:      new Animated.Value(0.82),
+      glow:       new Animated.Value(0),
+    })),
+  ).current;
   // ── Step & animation ────────────────────────────────────────────────────────
   const [step, setStep] = useState(0);
   const stepOpacity  = useRef(new Animated.Value(1)).current;
@@ -136,24 +221,62 @@ export default function OnboardingScreen() {
   const progressAnim = useRef(new Animated.Value(1 / TOTAL_STEPS)).current;
   const [progressTrackW, setProgressTrackW] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
+  /** Para scroll al pie tras el modal de sueldo (web/iOS/Android). */
+  const scrollViewportH = useRef(0);
+  const scrollContentH = useRef(0);
+
+  useEffect(() => {
+    if (step !== 0) {
+      statCardEnterAnim.forEach((a) => {
+        a.opacity.setValue(0);
+        a.translateY.setValue(18);
+      });
+      return;
+    }
+    statCardEnterAnim.forEach((a) => {
+      a.opacity.setValue(0);
+      a.translateY.setValue(18);
+    });
+    Animated.stagger(
+      90,
+      statCardEnterAnim.map((a) =>
+        Animated.parallel([
+          Animated.timing(a.opacity, {
+            toValue: 1,
+            duration: 420,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(a.translateY, {
+            toValue: 0,
+            duration: 420,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
+      ),
+    ).start();
+  }, [step, statCardEnterAnim]);
 
   // ── Salary ──────────────────────────────────────────────────────────────────
   const [salarioRango, setSalarioRango]           = useState<SalarioId | ''>('');
   const [showApproxModal, setShowApproxModal]     = useState(false);
   const [pendingSalarioId, setPendingSalarioId]   = useState<SalarioId | ''>('');
   const [ingresoAprox, setIngresoAprox]           = useState('');
-  const [incomeForProjection, setIncomeForProjection] = useState<number | null>(null);
-  const [showSavingsGoalModal, setShowSavingsGoalModal] = useState(false);
-  const [savingsGoalInput, setSavingsGoalInput] = useState('');
+
+  // ── Theme selection (onboarding) ────────────────────────────────────────────
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const T = isDarkMode ? darkTheme : lightTheme;
 
   // ── Profile ─────────────────────────────────────────────────────────────────
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [moneda, setMoneda] = useState<MonedaCode>('PEN');
   const [profileNameError, setProfileNameError] = useState('');
+  const [lifeSituation, setLifeSituation] = useState<OnboardingLifeSituationId>('');
 
   // ── Payment methods ──────────────────────────────────────────────────────────
   const [paymentMethodOptions, setPaymentMethodOptions] = useState<string[]>(() => {
-    const saved = (profile.metodosDePago ?? []).map((m) => m.nombre);
+    const saved = (profile.metodosDePago ?? []).map((m) => normalizePaymentMethodName(m.nombre));
     const all = [...DEFAULT_PAYMENT_OPTIONS];
     for (const m of saved) if (!all.includes(m)) all.push(m);
     return all;
@@ -172,18 +295,20 @@ export default function OnboardingScreen() {
   const [selectedBanks, setSelectedBanks] = useState<string[]>(['BCP']);
   const [newCustomBank, setNewCustomBank]             = useState('');
   const [showCustomBankInput, setShowCustomBankInput] = useState(false);
+  const [showMoreBanks, setShowMoreBanks]             = useState(false);
+
+  const bancosPersonalizados = useMemo(
+    () => bankOptions.filter((b) => !DEFAULT_BANCOS_DISPONIBLES.includes(b)),
+    [bankOptions],
+  );
+  const masBancosCount = ONBOARDING_BANCOS_MAS.length + bancosPersonalizados.length;
 
   // ── Budget categories ────────────────────────────────────────────────────────
-  const [presupuestos, setPresupuestos]     = useState<Record<string, string>>({});
-  const [categoriasList, setCategoriasList] = useState<BudgetCatEntry[]>(() =>
-    SALARY_RECOMMENDED.custom
-      .map((id) => ALL_BUDGET_CATS.find((c) => c.id === id))
-      .filter((c): c is BudgetCatEntry => c != null)
-      .map((c) => ({ id: c.id, nombre: c.nombre, emoji: c.emoji })),
-  );
+  const [categoriasList, setCategoriasList] = useState<BudgetCatEntry[]>([]);
 
   const [pickerCustomName, setPickerCustomName]           = useState('');
   const [showPickerCustomInput, setShowPickerCustomInput] = useState(false);
+  const [gastosSelectionHint, setGastosSelectionHint]     = useState('');
 
   // ── Income categories (touch selection) ─────────────────────────────────────
   const [incomeSourceOptions] = useState(INCOME_CATEGORIAS_DEFAULT);
@@ -203,10 +328,44 @@ export default function OnboardingScreen() {
     }).start();
   }, [step, progressAnim]);
 
+  // ── Gastos step: auto-reveal chips on enter ──────────────────────────────────
+  useEffect(() => {
+    if (step !== 3) return;
+    // Si vuelve con categorías ya elegidas → chips visibles de inmediato
+    if (categoriasList.length > 0) {
+      catChipAnims.forEach((a) => { a.opacity.setValue(1); a.scale.setValue(1); a.glow.setValue(0); });
+      return;
+    }
+    // Primer visit: resetear y animar con stagger tras el fade-in del paso
+    catChipAnims.forEach((a) => { a.opacity.setValue(0); a.scale.setValue(0.82); a.glow.setValue(0); });
+    const t = setTimeout(() => {
+      Animated.stagger(
+        55,
+        catChipAnims.map((a) =>
+          Animated.parallel([
+            Animated.timing(a.opacity, {
+              toValue: 1, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+            }),
+            Animated.spring(a.scale, {
+              toValue: 1, friction: 6, tension: 180, useNativeDriver: true,
+            }),
+            Animated.sequence([
+              Animated.timing(a.glow, { toValue: 1, duration: 1, useNativeDriver: true }),
+              Animated.timing(a.glow, { toValue: 0, duration: 520, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+            ]),
+          ]),
+        ),
+      ).start();
+    }, 340); // esperar al fade-in del paso (270ms) + buffer
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   // ── Step navigation ───────────────────────────────────────────────────────────
   const goToStep = (n: number) => {
     Animated.timing(stepOpacity, { toValue: 0, duration: 160, useNativeDriver: true }).start(() => {
       setStep(n);
+      if (n === 3) setGastosSelectionHint('');
       stepTransY.setValue(18);
       scrollRef.current?.scrollTo({ y: 0, animated: false });
       Animated.parallel([
@@ -220,24 +379,6 @@ export default function OnboardingScreen() {
     });
   };
 
-  // ── Salary selection → auto-populate budgets ──────────────────────────────────
-  const applyBudgetRecommendations = (id: SalarioId, income: number) => {
-    setIncomeForProjection(income);
-    const ids = SALARY_RECOMMENDED[id];
-    const newCats = ids
-      .map((catId) => ALL_BUDGET_CATS.find((c) => c.id === catId))
-      .filter((c): c is BudgetCatEntry => c != null)
-      .map((c) => ({ id: c.id, nombre: c.nombre, emoji: c.emoji }));
-    setCategoriasList(newCats);
-    const pcts = SALARY_BUDGET_PCT[id];
-    const amounts: Record<string, string> = {};
-    for (const cat of newCats) {
-      const pct = pcts[cat.id];
-      if (pct) amounts[cat.nombre] = Math.round(income * pct).toString();
-    }
-    setPresupuestos(amounts);
-  };
-
   const handleSalarioSelect = (id: SalarioId) => {
     setSalarioRango(id);
     setPendingSalarioId(id);
@@ -245,49 +386,42 @@ export default function OnboardingScreen() {
     setShowApproxModal(true);
   };
 
-  const handleApproxConfirm = () => {
-    const id = pendingSalarioId as SalarioId;
-    const parsed = parseFloat(ingresoAprox);
-    const income = Number.isFinite(parsed) && parsed > 0 ? parsed : SALARY_MEDIAN[id] || 3000;
-    applyBudgetRecommendations(id, income);
-    setShowApproxModal(false);
-  };
-
-  const openSavingsGoalModal = () => {
-    const income = incomeForProjection ?? (salarioRango ? SALARY_MEDIAN[salarioRango] : 3000);
-    const id = salarioRango || 'custom';
-    const pctMap = SALARY_BUDGET_PCT[id];
-    const assignedRatio = Object.values(pctMap).reduce<number>((acc, n) => acc + (n ?? 0), 0);
-    const baselineSavings = Math.max(income * (1 - assignedRatio), 0);
-    setSavingsGoalInput(String(Math.round(baselineSavings)));
-    setShowSavingsGoalModal(true);
-  };
-
-  const applySavingsGoalAndContinue = () => {
-    const id = salarioRango || 'custom';
-    const income = incomeForProjection ?? (SALARY_MEDIAN[id] || 3000);
-    const rawGoal = parseFloat(savingsGoalInput);
-    const savingsGoal = Number.isFinite(rawGoal) ? Math.max(0, Math.min(rawGoal, income * 0.9)) : 0;
-    const spendable = Math.max(income - savingsGoal, 0);
-
-    const ids = SALARY_RECOMMENDED[id];
-    const newCats = ids
-      .map((catId) => ALL_BUDGET_CATS.find((c) => c.id === catId))
-      .filter((c): c is BudgetCatEntry => c != null)
-      .map((c) => ({ id: c.id, nombre: c.nombre, emoji: c.emoji }));
-    setCategoriasList(newCats);
-
-    const pcts = SALARY_BUDGET_PCT[id];
-    const weights = newCats.map((cat) => pcts[cat.id] ?? 0).reduce((acc, n) => acc + n, 0);
-    const amounts: Record<string, string> = {};
-    for (const cat of newCats) {
-      const w = pcts[cat.id] ?? 0;
-      const ratio = weights > 0 ? (w / weights) : (1 / Math.max(newCats.length, 1));
-      amounts[cat.nombre] = Math.round(spendable * ratio).toString();
+  const scrollToBottomOfScrollView = () => {
+    const vh = scrollViewportH.current;
+    const ch = scrollContentH.current;
+    if (vh <= 0 || ch <= 0) {
+      scrollRef.current?.scrollToEnd({ animated: true });
+      return;
     }
-    setPresupuestos(amounts);
-    setIncomeForProjection(income);
-    setShowSavingsGoalModal(false);
+    const y = Math.max(0, ch - vh);
+    scrollRef.current?.scrollTo({ y, animated: true });
+  };
+
+  /** Tras cerrar el modal de sueldo: espera al fade y hace scroll suave al Continuar del paso ingresos. */
+  const scrollToIncomeContinueAfterApprox = () => {
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        scrollToBottomOfScrollView();
+        requestAnimationFrame(() => scrollToBottomOfScrollView());
+        setTimeout(() => scrollToBottomOfScrollView(), 90);
+        setTimeout(() => scrollToBottomOfScrollView(), 280);
+      }, 320);
+    });
+  };
+
+  const handleApproxConfirm = () => {
+    setShowApproxModal(false);
+    scrollToIncomeContinueAfterApprox();
+  };
+
+  /** Gastos (elige categorías) → fuentes de ingreso. */
+  const goGastosToFuentesStep = () => {
+    if (categoriasList.length === 0) {
+      setGastosSelectionHint('Elige al menos una categoría de tus gastos mensuales para continuar.');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+    setGastosSelectionHint('');
     goToStep(4);
   };
 
@@ -300,6 +434,7 @@ export default function OnboardingScreen() {
     } else {
       setCategoriasList((prev) => [...prev, { id: cat.id, nombre: cat.nombre, emoji: cat.emoji }]);
     }
+    setGastosSelectionHint('');
   };
 
   const handleAddPickerCustom = () => {
@@ -308,6 +443,7 @@ export default function OnboardingScreen() {
     const newId = `custom_${Date.now()}`;
     if (!categoriasList.some((c) => c.nombre.toLowerCase() === trimmed.toLowerCase())) {
       setCategoriasList((prev) => [...prev, { id: newId, nombre: trimmed, emoji: '📦' }]);
+      setGastosSelectionHint('');
     }
     setPickerCustomName('');
     setShowPickerCustomInput(false);
@@ -343,6 +479,7 @@ export default function OnboardingScreen() {
     if (!selectedBanks.includes(t)) setSelectedBanks((p) => [...p, t]);
     setNewCustomBank('');
     setShowCustomBankInput(false);
+    setShowMoreBanks(true);
   };
 
   const handleProfileContinue = () => {
@@ -352,7 +489,7 @@ export default function OnboardingScreen() {
       return;
     }
     setProfileNameError('');
-    goToStep(3);
+    goToStep(2);
   };
 
   const toggleIncomeSource = (id: string) => {
@@ -413,14 +550,6 @@ export default function OnboardingScreen() {
         }
       } catch (e) { console.error('Error bloque ingresos:', e); }
 
-      // Guardar presupuestos
-      const mes = new Date().toISOString().slice(0, 7);
-      await Promise.all(
-        Object.entries(presupuestos)
-          .filter(([, val]) => val && parseFloat(val) > 0)
-          .map(([cat, lim]) => db.upsertBudget(user.id, cat, parseFloat(lim), mes)),
-      );
-
       await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
       useFinanceStore.setState({ categories: [], incomeCategories: [] });
       const { loadFromSupabase: sync, loadCategories, loadIncomeCategories } = useFinanceStore.getState();
@@ -442,32 +571,6 @@ export default function OnboardingScreen() {
   const progressFillWidth = progressAnim.interpolate({
     inputRange: [0, 1], outputRange: [0, progressTrackW],
   });
-  const currencySymbol = moneda === 'USD' ? '$' : 'S/.';
-  const selectedRangeMeta = SALARY_RANGES.find((r) => r.id === salarioRango);
-  const projectionIncome = incomeForProjection ?? (salarioRango ? SALARY_MEDIAN[salarioRango] : null);
-  const projectedAssigned = useMemo(
-    () =>
-      categoriasList.reduce((acc, cat) => {
-        const val = parseFloat((presupuestos[cat.nombre] ?? '').replace(',', '.'));
-        return acc + (Number.isFinite(val) ? val : 0);
-      }, 0),
-    [categoriasList, presupuestos],
-  );
-  const projectedSavings = projectionIncome != null ? Math.max(projectionIncome - projectedAssigned, 0) : null;
-  const projectedSavingsPct = projectionIncome && projectionIncome > 0 && projectedSavings != null
-    ? (projectedSavings / projectionIncome) * 100
-    : null;
-  const savingsGoalValue = parseFloat(savingsGoalInput);
-  const savingsGoalIncomeBase = incomeForProjection ?? (salarioRango ? SALARY_MEDIAN[salarioRango] : 3000);
-  const selectedSalaryId = (salarioRango || 'custom') as SalarioId;
-  const recommendedSavingsRatio = 1 - Object.values(SALARY_BUDGET_PCT[selectedSalaryId]).reduce<number>((acc, n) => acc + (n ?? 0), 0);
-  const recommendedSavingsAmount = Math.max(savingsGoalIncomeBase * recommendedSavingsRatio, 0);
-  const recommendedSavingsPct = Math.max(recommendedSavingsRatio * 100, 0);
-  const savingsGoalPct = Number.isFinite(savingsGoalValue) && savingsGoalIncomeBase > 0
-    ? (savingsGoalValue / savingsGoalIncomeBase) * 100
-    : 0;
-  const money = (n: number) => Math.round(n).toLocaleString('es-PE');
-
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <View style={[S.container, { backgroundColor: T.bg }]}>
@@ -492,8 +595,15 @@ export default function OnboardingScreen() {
       <Animated.View style={{ flex: 1, opacity: stepOpacity, transform: [{ translateY: stepTransY }] }}>
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={S.slide}
+          onLayout={(e) => {
+            scrollViewportH.current = e.nativeEvent.layout.height;
+          }}
+          onContentSizeChange={(_, h) => {
+            scrollContentH.current = h;
+          }}
+          contentContainerStyle={[S.slide, step === 3 && S.slideGastosTight]}
           showsVerticalScrollIndicator={false}
+          scrollEnabled={step !== 3}
           keyboardShouldPersistTaps="handled">
 
           {/* ───────────── PASO 0 · Bienvenida ───────────────────────── */}
@@ -502,13 +612,47 @@ export default function OnboardingScreen() {
 
               {/* Hero icon + headline */}
               <View style={S.heroSection}>
-                <View style={[S.iconBox, { backgroundColor: T.primaryBg, borderColor: T.primaryBorder, width: 80, height: 80, borderRadius: 24 }]}>
-                  <Text style={{ fontSize: 38 }}>💎</Text>
+                <View
+                  style={[
+                    S.heroIconOuter,
+                    Platform.select({
+                      ios: {
+                        shadowColor: '#CBA6FF',
+                        shadowOffset: { width: 0, height: 0 },
+                        shadowOpacity: 0.75,
+                        shadowRadius: 16,
+                      },
+                      android: { elevation: 10 },
+                      web: {
+                        boxShadow: [
+                          '0 0 0 1px rgba(203,166,255,0.95)',
+                          '0 0 22px rgba(124,58,237,0.75)',
+                          '0 0 48px rgba(124,58,237,0.35)',
+                        ].join(', '),
+                      } as object,
+                      default: {},
+                    }),
+                  ]}>
+                  <LinearGradient
+                    colors={['#E9D5FF', T.primaryLight, T.primary, '#5B21B6']}
+                    locations={[0, 0.3, 0.72, 1]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={S.heroIconNeonRing}>
+                    <View style={[S.heroIconInner, { backgroundColor: T.cardElevated }]}>
+                      <LinearGradient
+                        colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0)']}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 1 }}
+                        style={S.heroIconInnerShine}
+                      />
+                      <Text style={S.heroIconEmoji}>💎</Text>
+                    </View>
+                  </LinearGradient>
                 </View>
 
                 <Text style={[S.heroTitle, { color: T.textPrimary }]}>
-                  Incrementa tu ahorro{'\n'}
-                  <Text style={{ color: T.primary }}>30%+</Text> sin darte cuenta
+                  Aumenta tu ahorro hasta 30% con un sistema simple
                 </Text>
 
                 <Text style={{ fontSize: 13, color: T.textMuted, fontWeight: '600', textAlign: 'center', letterSpacing: 0.4 }}>
@@ -520,36 +664,134 @@ export default function OnboardingScreen() {
                 </Text>
               </View>
 
-              {/* Stat mini-cards */}
-              <View style={S.statRow}>
-                {/* Card 1 – custom with bold "No." */}
-                <View style={[S.statCard, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
-                  <Text style={[S.statValue, { color: T.textPrimary }]}>8 de 10</Text>
-                  <View style={S.statLabelWrap}>
-                    <Text style={[S.statLabel, { color: T.textMuted }]}>{'creen que ganando\nmás ahorrarán más.'}</Text>
-                  </View>
-                  <Text style={S.statSpoiler}>Spoiler: No.</Text>
+              {/* Insight deck — capa editorial + gradientes + entrada escalonada */}
+              <View
+                style={[
+                  S.statDeck,
+                  {
+                    borderColor: T.glassBorder,
+                    backgroundColor: T.surface,
+                  },
+                  Platform.select({
+                    ios: {
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 14 },
+                      shadowOpacity: 0.28,
+                      shadowRadius: 28,
+                    },
+                    android: { elevation: 10 },
+                    web: {
+                      boxShadow: `0 24px 64px ${T.shadowDark}, 0 0 0 1px ${T.glassBorder}`,
+                    } as object,
+                    default: {},
+                  }),
+                ]}>
+                <View style={S.statDeckHeader}>
+                  <Text style={[S.statDeckKicker, { color: T.secondary }]}>Contexto</Text>
+                  <Text style={[S.statDeckTitle, { color: T.textPrimary }]}>
+                    Tres señales que explican por qué cuesta ahorrar
+                  </Text>
+                  <View style={[S.statDeckRule, { backgroundColor: T.glassBorder }]} />
                 </View>
 
-                {/* Cards 2 & 3 */}
-                {[
-                  { value: '68%',     label: 'del sueldo\ndesaparece\nsin explicación', accent: false },
-                  { value: 'Solo 8%', label: 'ahorra de forma\nconstante.\nSé del grupo.', accent: true },
-                ].map((s) => (
-                  <View
-                    key={s.label}
-                    style={[
-                      S.statCard,
-                      s.accent
-                        ? { backgroundColor: T.primaryBg, borderColor: T.primary, borderWidth: 1.5 }
-                        : { backgroundColor: T.card, borderColor: T.glassBorder },
-                    ]}>
-                    <Text style={[S.statValue, { color: s.accent ? T.primary : T.textPrimary }]}>{s.value}</Text>
-                    <View style={S.statLabelWrap}>
-                      <Text style={[S.statLabel, { color: T.textMuted }]}>{s.label}</Text>
-                    </View>
-                  </View>
-                ))}
+                <View style={[S.statRow, statCardsStacked && S.statRowStacked]}>
+                  {ONBOARDING_STAT_CARDS.map((card, index) => {
+                    const accent = !!card.accent;
+                    const anim = statCardEnterAnim[index];
+                    const idx = String(index + 1).padStart(2, '0');
+
+                    const innerContent = (
+                      <>
+                        <LinearGradient
+                          colors={card.barColors}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={S.statCardGlowBar}
+                        />
+                        <View style={[S.statCardInner, statCardsStacked && S.statCardInnerStacked]}>
+                          <View style={[S.statCardMetaRow, statCardsStacked && S.statCardMetaRowStacked]}>
+                            <Text
+                              style={[S.statEyebrow, { color: accent ? T.secondary : T.textMuted }]}
+                              numberOfLines={1}>
+                              {card.eyebrow}
+                            </Text>
+                            <Text style={[S.statIndex, { color: T.textMuted }]}>{idx}</Text>
+                          </View>
+                          <Text
+                            style={[
+                              S.statValuePremium,
+                              { color: T.textPrimary },
+                              accent && S.statValuePremiumAccent,
+                              statCardsStacked && S.statValuePremiumStacked,
+                            ]}>
+                            {card.value}
+                          </Text>
+                          <Text
+                            style={[
+                              S.statLabelPremium,
+                              { color: T.textSecondary },
+                              statCardsStacked && S.statLabelStacked,
+                            ]}>
+                            {card.description}
+                          </Text>
+                          {card.footer ? (
+                            <View
+                              style={[
+                                S.statFooterPillPremium,
+                                {
+                                  backgroundColor: accent ? 'rgba(0,212,255,0.12)' : T.glassLight,
+                                  borderColor: accent ? 'rgba(0,212,255,0.35)' : T.primaryBorder,
+                                },
+                                statCardsStacked && S.statFooterPillStacked,
+                              ]}>
+                              <Text
+                                style={[
+                                  S.statFooterTextPremium,
+                                  { color: accent ? T.secondary : T.primary },
+                                ]}>
+                                {card.footer}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </>
+                    );
+
+                    const shellStyle = [
+                      S.statCardPremiumShell,
+                      accent
+                        ? { borderColor: T.primary, borderWidth: 1.5 }
+                        : { borderColor: T.glassBorder, borderWidth: 1 },
+                    ];
+
+                    return (
+                      <Animated.View
+                        key={card.id}
+                        style={[
+                          {
+                            opacity: anim.opacity,
+                            transform: [{ translateY: anim.translateY }],
+                          },
+                          statCardsStacked ? S.statAnimSlotStacked : S.statAnimSlotRow,
+                        ]}>
+                        {accent ? (
+                          <LinearGradient
+                            colors={['rgba(124,58,237,0.42)', T.cardElevated, T.card]}
+                            locations={[0, 0.55, 1]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={[shellStyle, S.statCardOverflow]}>
+                            {innerContent}
+                          </LinearGradient>
+                        ) : (
+                          <View style={[shellStyle, S.statCardOverflow, { backgroundColor: T.cardElevated }]}>
+                            {innerContent}
+                          </View>
+                        )}
+                      </Animated.View>
+                    );
+                  })}
+                </View>
               </View>
 
               {/* Social proof */}
@@ -570,17 +812,17 @@ export default function OnboardingScreen() {
             </View>
           )}
 
-          {/* ───────────── PASO 1 · Rango salarial ────────────────────── */}
-          {step === 1 && (
-            <View style={S.stepContent}>
-              <View style={{ width: '100%', gap: 6 }}>
-                <Text style={[S.sectionTitle, { color: T.textPrimary }]}>¿Cuál es tu rango{'\n'}de ingresos?</Text>
-                <Text style={[S.sectionSub, { color: T.textSecondary }]}>
-                  Lo usamos para sugerirte categorías y presupuestos más relevantes para ti.
+          {/* ───────────── PASO 3 · Rango salarial (3/5) ───────────────── */}
+          {step === 2 && (
+            <View style={[S.stepContent, S.stepIncomeLayout]}>
+              <View style={{ width: '100%', gap: 4 }}>
+                <Text style={[S.sectionTitleIncome, { color: T.textPrimary }]}>¿Cuál es tu rango de ingresos?</Text>
+                <Text style={[S.sectionSubIncome, { color: T.textSecondary }]}>
+                  Nos ayuda a contextualizar la app; tus montos reales los verás al registrar gastos.
                 </Text>
               </View>
 
-              <View style={{ width: '100%', gap: 10 }}>
+              <View style={{ width: '100%', gap: 6 }}>
                 {SALARY_RANGES.map((r) => {
                   const active = salarioRango === r.id;
                   return (
@@ -588,6 +830,7 @@ export default function OnboardingScreen() {
                       key={r.id}
                       style={[
                         S.salaryCard,
+                        S.salaryCardIncome,
                         {
                           backgroundColor: active ? T.primaryBg  : T.surface,
                           borderColor:     active ? T.primary    : T.glassBorder,
@@ -596,35 +839,36 @@ export default function OnboardingScreen() {
                       ]}
                       onPress={() => handleSalarioSelect(r.id)}
                       activeOpacity={0.8}>
-                      <Text style={{ fontSize: 22, width: 34 }}>{r.icon}</Text>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[S.salaryLabel, { color: active ? T.primary : T.textPrimary }]}>{r.label}</Text>
-                        <Text style={{ fontSize: 12, color: T.textMuted, marginTop: 1 }}>{r.sub}</Text>
+                      <Text style={S.salaryIconIncome}>{r.icon}</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[S.salaryLabel, S.salaryLabelIncome, { color: active ? T.primary : T.textPrimary }]}>{r.label}</Text>
+                        <Text style={[S.salarySubIncome, { color: T.textMuted }]} numberOfLines={1}>{r.sub}</Text>
                       </View>
                       <View style={[
                         S.radioCircle,
+                        S.radioCircleIncome,
                         { borderColor: active ? T.primary : T.glassBorder, backgroundColor: active ? T.primary : 'transparent' },
                       ]}>
-                        {active && <View style={S.radioInner} />}
+                        {active && <View style={[S.radioInner, S.radioInnerIncome]} />}
                       </View>
                     </TouchableOpacity>
                   );
                 })}
               </View>
 
-              <View style={[S.privacyNote, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
-                <Text style={{ fontSize: 12, color: T.textMuted, lineHeight: 18 }}>
-                  🔒 Esta información es privada y solo se usa para personalizar tu experiencia. No se comparte con nadie.
+              <View style={[S.privacyNote, S.privacyNoteIncome, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
+                <Text style={[S.privacyTextIncome, { color: T.textMuted }]}>
+                  🔒 Solo para personalizar la app · no se comparte.
                 </Text>
               </View>
 
               <View style={S.navRow}>
-                <TouchableOpacity onPress={() => goToStep(0)} style={S.backBtn}>
+                <TouchableOpacity onPress={() => goToStep(1)} style={S.backBtn}>
                   <Text style={[S.backText, { color: T.textMuted }]}>← Atrás</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[S.ctaBtn, { backgroundColor: salarioRango ? T.primary : T.surface, flex: 1 }]}
-                  onPress={() => goToStep(2)}
+                  onPress={() => goToStep(3)}
                   disabled={!salarioRango}
                   activeOpacity={0.84}>
                   <Text style={[S.ctaBtnText, { color: salarioRango ? '#fff' : T.textMuted }]}>
@@ -635,424 +879,411 @@ export default function OnboardingScreen() {
             </View>
           )}
 
-          {/* ───────────── PASO 2 · Tu perfil ─────────────────────────── */}
-          {step === 2 && (
-            <View style={S.stepContent}>
-              <View style={{ width: '100%', gap: 6 }}>
-                <Text style={[S.sectionTitle, { color: T.textPrimary }]}>Tu perfil financiero</Text>
-                <Text style={[S.sectionSub, { color: T.textSecondary }]}>
-                  Personaliza la app según tus hábitos reales.
-                </Text>
-              </View>
+          {/* ───────────── PASO 2 · Tu perfil + tema ──────────────────── */}
+          {step === 1 && (
+            <View style={[S.stepContent, S.stepProfileLayout]}>
+              <View style={S.profileColumn}>
 
-              {/* Nombre */}
-              <View style={[S.fieldGroup, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
-                <Text style={[S.fieldLabel, { color: T.textMuted }]}>¿CÓMO TE LLAMAMOS?</Text>
-                <TextInput
-                  style={[S.fieldInput, { color: T.textPrimary }]}
-                  placeholder="Tu nombre o apodo"
-                  placeholderTextColor={T.textMuted}
-                  value={nombreUsuario}
-                  onChangeText={(val) => {
-                    setNombreUsuario(val);
-                    if (profileNameError && val.trim()) setProfileNameError('');
-                  }}
-                  returnKeyType="done"
-                />
-              </View>
-              {profileNameError ? (
-                <Text style={{ width: '100%', color: '#f97373', fontSize: 12, marginTop: -8, marginBottom: -2 }}>
-                  {profileNameError}
-                </Text>
-              ) : null}
-
-              {/* Moneda */}
-              <View style={{ width: '100%', gap: 10 }}>
-                <Text style={[S.label, { color: T.textSecondary }]}>Moneda principal</Text>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  {CURRENCY_OPTIONS.map((cur) => {
-                    const active = moneda === cur.code;
-                    return (
-                      <TouchableOpacity
-                        key={cur.code}
-                        style={[S.currencyCard, { flex: 1, backgroundColor: active ? T.primaryBg : T.surface, borderColor: active ? T.primary : T.glassBorder, borderWidth: active ? 1.5 : 1 }]}
-                        onPress={() => setMoneda(cur.code)}
-                        activeOpacity={0.8}>
-                        <View style={[S.flagBadge, { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: active ? T.primary : T.glassBorder }]}>
-                          <Text style={{ fontSize: 22 }}>{cur.flag}</Text>
-                        </View>
-                        <Text style={[S.currencySymbol, { color: active ? T.primary : T.textPrimary }]}>{cur.symbol}</Text>
-                        <Text style={{ fontSize: 12, color: T.textMuted }}>{cur.name}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* Métodos de pago */}
-              <View style={{ width: '100%', gap: 12 }}>
-                <View style={S.labelRow}>
-                  <View>
-                    <Text style={[S.label, { color: T.textPrimary, fontSize: 15 }]}>¿Cómo pagas normalmente?</Text>
-                    <Text style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>Selecciona todos los que usas</Text>
-                  </View>
-                  {selectedPaymentMethods.length > 0 && (
-                    <View style={[S.countBadge, { backgroundColor: T.primaryBg, borderColor: T.primary }]}>
-                      <Text style={{ fontSize: 12, color: T.primary, fontWeight: '700' }}>{selectedPaymentMethods.length}</Text>
-                    </View>
-                  )}
-                </View>
-
-                <View style={S.methodGrid}>
-                  {paymentMethodOptions.map((m) => {
-                    const active = selectedPaymentMethods.includes(m);
-                    const emoji = PAYMENT_EMOJI[m] ?? '💳';
-                    return (
-                      <TouchableOpacity
-                        key={m}
-                        style={[S.methodCard, { backgroundColor: active ? T.primaryBg : T.card, borderColor: active ? T.primary : T.glassBorder, borderWidth: active ? 1.5 : 1 }]}
-                        onPress={() => togglePaymentMethod(m)}
-                        activeOpacity={0.75}>
-                        {m === 'Suscripciones' ? (
-                          <Image
-                            source={NETFLIX_LOGO}
-                            style={S.netflixLogo}
-                            resizeMode="contain"
-                          />
-                        ) : (
-                          <Text style={{ fontSize: 22 }}>{emoji}</Text>
-                        )}
-                        <Text style={{ fontSize: 12, fontWeight: active ? '700' : '400', color: active ? T.primary : T.textSecondary, marginTop: 4, textAlign: 'center' }}>{m}</Text>
-                        {active && (
-                          <View style={[S.methodCheck, { backgroundColor: T.primary }]}>
-                            <Text style={{ fontSize: 8, color: '#fff' }}>✓</Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                {showCustomPaymentInput ? (
-                  <View style={S.inlineRow}>
-                    <TextInput
-                      style={[S.inlineInput, { flex: 1, backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
-                      placeholder="Ej: PayPal, Nequi..."
-                      placeholderTextColor={T.textMuted}
-                      value={newCustomPayment}
-                      onChangeText={setNewCustomPayment}
-                      onSubmitEditing={handleAddCustomPaymentMethod}
-                      returnKeyType="done"
-                      autoFocus
-                    />
-                    <TouchableOpacity style={[S.inlineOk, { backgroundColor: T.primary }]} onPress={handleAddCustomPaymentMethod}>
-                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Agregar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={S.inlineCancel} onPress={() => setShowCustomPaymentInput(false)}>
-                      <Text style={{ color: T.textMuted, fontSize: 15 }}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[S.addOtherBtn, { borderColor: T.glassBorder }]}
-                    onPress={() => setShowCustomPaymentInput(true)}
-                    activeOpacity={0.75}>
-                    <Text style={{ fontSize: 18, color: T.textMuted }}>＋</Text>
-                    <Text style={{ fontSize: 13, color: T.textSecondary, fontWeight: '600' }}>Otro método de pago</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Bancos */}
-              <View style={{ width: '100%', gap: 12 }}>
-                <View style={S.labelRow}>
-                  <View>
-                    <Text style={[S.label, { color: T.textPrimary, fontSize: 15 }]}>¿Qué bancos usas?</Text>
-                    <Text style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>Para clasificar mejor tus movimientos</Text>
-                  </View>
-                  {selectedBanks.length > 0 && (
-                    <View style={[S.countBadge, { backgroundColor: T.primaryBg, borderColor: T.primary }]}>
-                      <Text style={{ fontSize: 12, color: T.primary, fontWeight: '700' }}>{selectedBanks.length}</Text>
-                    </View>
-                  )}
-                </View>
-
-                <View style={S.bankGrid}>
-                  {bankOptions.map((b) => {
-                    const active = selectedBanks.includes(b);
-                    const emoji = BANK_EMOJI[b] ?? '🏦';
-                    return (
-                      <TouchableOpacity
-                        key={b}
-                        style={[S.bankCard, { backgroundColor: active ? T.primaryBg : T.card, borderColor: active ? T.primary : T.glassBorder, borderWidth: active ? 1.5 : 1 }]}
-                        onPress={() => toggleBank(b)}
-                        activeOpacity={0.75}>
-                        <Text style={{ fontSize: 20 }}>{emoji}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: active ? '700' : '400', color: active ? T.primary : T.textSecondary, flex: 1 }}>{b}</Text>
-                        <View style={[S.radioCircle, { width: 18, height: 18, borderRadius: 9, borderColor: active ? T.primary : T.glassBorder, backgroundColor: active ? T.primary : 'transparent' }]}>
-                          {active && <View style={[S.radioInner, { width: 7, height: 7, borderRadius: 3.5 }]} />}
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                {showCustomBankInput ? (
-                  <View style={S.inlineRow}>
-                    <TextInput
-                      style={[S.inlineInput, { flex: 1, backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder }]}
-                      placeholder="Ej: Banco de la Nación..."
-                      placeholderTextColor={T.textMuted}
-                      value={newCustomBank}
-                      onChangeText={setNewCustomBank}
-                      onSubmitEditing={handleAddCustomBank}
-                      returnKeyType="done"
-                      autoFocus
-                    />
-                    <TouchableOpacity style={[S.inlineOk, { backgroundColor: T.primary }]} onPress={handleAddCustomBank}>
-                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Agregar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={S.inlineCancel} onPress={() => setShowCustomBankInput(false)}>
-                      <Text style={{ color: T.textMuted, fontSize: 15 }}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[S.addOtherBtn, { borderColor: T.glassBorder }]}
-                    onPress={() => setShowCustomBankInput(true)}
-                    activeOpacity={0.75}>
-                    <Text style={{ fontSize: 18, color: T.textMuted }}>＋</Text>
-                    <Text style={{ fontSize: 13, color: T.textSecondary, fontWeight: '600' }}>Otro banco</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <View style={S.navRow}>
-                <TouchableOpacity onPress={() => goToStep(1)} style={S.backBtn}>
-                  <Text style={[S.backText, { color: T.textMuted }]}>← Atrás</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[S.ctaBtn, { backgroundColor: T.primary, flex: 1 }]} onPress={handleProfileContinue} activeOpacity={0.84}>
-                  <Text style={S.ctaBtnText}>Continuar →</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* ───────────── PASO 4 · Qué gastos tienes ───────────────────── */}
-          {step === 3 && (
-            <View style={S.stepContent}>
-              <View style={{ width: '100%', gap: 6 }}>
-                <Text style={[S.sectionTitle, { color: T.textPrimary }]}>¿Qué gastos tienes?</Text>
-                <Text style={[S.sectionSub, { color: T.textSecondary }]}>
-                  Elige las categorías de gasto que aplican a tu vida diaria.
-                </Text>
-              </View>
-
-              {/* Recommendation badge */}
-              {selectedRangeMeta && (
-                <View style={[S.suggBadge, { backgroundColor: T.primaryBg, borderColor: T.primaryBorder }]}>
-                  <Text style={{ fontSize: 13, color: T.primary }}>
-                    💡 Recomendadas para <Text style={{ fontWeight: '700' }}>{selectedRangeMeta.label}</Text>
+                {/* Encabezado */}
+                <View style={S.profileHeaderCenter}>
+                  <Text style={[S.sectionTitleIncome, { color: T.textPrimary }]}>Tu perfil</Text>
+                  <Text style={[S.sectionSubIncome, { color: T.textSecondary }]}>
+                    Nombre, situación, moneda y apariencia.
                   </Text>
                 </View>
-              )}
 
-              {/* Inline chip grid */}
-              <View style={S.chipGrid}>
-                {ALL_BUDGET_CATS.map((cat) => {
-                  const active = isCatSelected(cat.id);
-                  return (
+                {/* Nombre */}
+                <View style={[S.fieldGroup, S.fieldGroupProfile, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
+                  <Text style={[S.fieldLabel, S.fieldLabelProfile, { color: T.textMuted }]}>Nombre o apodo</Text>
+                  <TextInput
+                    style={[S.fieldInput, S.fieldInputProfile, { color: T.textPrimary }]}
+                    placeholder="Cómo te llamamos"
+                    placeholderTextColor={T.textMuted}
+                    value={nombreUsuario}
+                    onChangeText={(val) => {
+                      setNombreUsuario(val);
+                      if (profileNameError && val.trim()) setProfileNameError('');
+                    }}
+                    returnKeyType="done"
+                  />
+                </View>
+                {profileNameError ? (
+                  <Text style={[S.profileSectionMeta, { width: '100%', color: '#f97373', marginTop: -4 }]}>
+                    {profileNameError}
+                  </Text>
+                ) : null}
+
+                {/* Situación (contexto para sugerencias después en la app) */}
+                <View style={{ width: '100%', gap: 5 }}>
+                  <View style={S.profileSectionHeader}>
+                    <Text style={[S.profileSectionTitle, { color: T.textPrimary }]}>Tu día a día</Text>
+                    <Text style={[S.profileSectionMeta, { color: T.textMuted }]}>
+                      Opcional · mejora sugerencias cuando tengas más contexto en la app
+                    </Text>
+                  </View>
+                  <View style={S.profileLifeChipsWrap}>
+                    {LIFE_SITUATION_OPTIONS.map((opt) => {
+                      const active = lifeSituation === opt.id;
+                      return (
+                        <TouchableOpacity
+                          key={opt.id || 'none'}
+                          onPress={() => setLifeSituation(opt.id)}
+                          activeOpacity={0.82}
+                          style={[
+                            S.profileLifeChip,
+                            {
+                              borderColor: active ? T.primary : T.glassBorder,
+                              backgroundColor: active ? T.primaryBg : T.surface,
+                            },
+                          ]}>
+                          <Text
+                            style={[
+                              S.profileLifeChipLabel,
+                              { color: active ? T.primary : T.textSecondary },
+                            ]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.85}>
+                            {opt.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Moneda */}
+                <View style={{ width: '100%', gap: 6 }}>
+                  <View style={S.profileSectionHeader}>
+                    <Text style={[S.profileSectionTitle, { color: T.textPrimary }]}>Moneda principal</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {CURRENCY_OPTIONS.map((cur) => {
+                      const active = moneda === cur.code;
+                      return (
+                        <TouchableOpacity
+                          key={cur.code}
+                          style={[S.currencyCard, S.currencyCardProfile, { flex: 1, backgroundColor: active ? T.primaryBg : T.surface, borderColor: active ? T.primary : T.glassBorder, borderWidth: 1 }]}
+                          onPress={() => setMoneda(cur.code)}
+                          activeOpacity={0.8}>
+                          <View style={[S.flagBadge, S.flagBadgeProfile, { backgroundColor: T.cardHigh, borderColor: active ? T.primary : T.glassBorder }]}>
+                            <Text style={{ fontSize: 18 }}>{cur.flag}</Text>
+                          </View>
+                          <Text style={[S.currencySymbol, S.currencySymbolProfile, { color: active ? T.primary : T.textPrimary }]}>{cur.symbol}</Text>
+                          <Text style={[S.profileSectionMeta, { color: T.textMuted }]}>{cur.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Selector de tema con preview */}
+                <View style={{ width: '100%', gap: 8 }}>
+                  <View style={S.profileSectionHeader}>
+                    <Text style={[S.profileSectionTitle, { color: T.textPrimary }]}>Apariencia</Text>
+                    <Text style={[S.profileSectionMeta, { color: T.textMuted }]}>
+                      {isDarkMode ? '🌙 Modo noche' : '☀️ Modo día'}
+                    </Text>
+                  </View>
+
+                  {/* Cards de selección de tema */}
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    {/* Noche */}
                     <TouchableOpacity
-                      key={cat.id}
                       style={[
-                        S.catChip,
-                        { backgroundColor: active ? T.primaryBg : T.card, borderColor: active ? T.primary : T.glassBorder, borderWidth: active ? 1.5 : 1 },
+                        S.themePickerCard,
+                        isDarkMode
+                          ? { borderColor: T.primary, borderWidth: 1.5, ...Platform.select({ ios: { shadowColor: T.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 5 }, web: { boxShadow: `0 0 16px ${T.shadowPrimary}` } as object, default: {} }) }
+                          : { borderColor: T.glassBorder, borderWidth: 1 },
+                        { backgroundColor: darkTheme.bg },
                       ]}
-                      onPress={() => togglePickerCat(cat)}
-                      activeOpacity={0.75}>
-                      <Text style={{ fontSize: 18 }}>{cat.emoji}</Text>
-                      <Text style={{ fontSize: 11, color: active ? T.primary : T.textSecondary, fontWeight: active ? '700' : '400', marginTop: 2, textAlign: 'center' }}>
-                        {cat.nombre}
-                      </Text>
-                      {active && (
-                        <View style={[S.chipCheck, { backgroundColor: T.primary }]}>
-                          <Text style={{ fontSize: 8, color: '#fff' }}>✓</Text>
+                      onPress={() => setIsDarkMode(true)}
+                      activeOpacity={0.8}>
+                      {/* Mini preview noche */}
+                      <View style={S.themePreviewScreen}>
+                        <View style={[S.themePreviewHeader, { backgroundColor: darkTheme.surface, borderBottomColor: darkTheme.glassBorder }]}>
+                          <View style={[S.themePreviewDot, { backgroundColor: darkTheme.primary }]} />
+                          <View style={[S.themePreviewBar, { backgroundColor: darkTheme.glassBorder, width: '45%' }]} />
                         </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-
-                {/* Custom categories added by user */}
-                {categoriasList
-                  .filter((c) => !ALL_BUDGET_CATS.find((bc) => bc.id === c.id))
-                  .map((cat) => (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[S.catChip, { backgroundColor: T.primaryBg, borderColor: T.primary, borderWidth: 1.5 }]}
-                      onPress={() => handleRemoveCat(cat.id)}
-                      activeOpacity={0.75}>
-                      <Text style={{ fontSize: 18 }}>{cat.emoji}</Text>
-                      <Text style={{ fontSize: 11, color: T.primary, fontWeight: '700', marginTop: 2, textAlign: 'center' }}>
-                        {cat.nombre}
-                      </Text>
-                      <View style={[S.chipCheck, { backgroundColor: T.primary }]}>
-                        <Text style={{ fontSize: 8, color: '#fff' }}>✓</Text>
+                        <View style={{ flex: 1, padding: 5, gap: 3 }}>
+                          <View style={[S.themePreviewCard, { backgroundColor: darkTheme.card, borderColor: darkTheme.glassBorder }]}>
+                            <View style={[S.themePreviewDot, { backgroundColor: '#4DF2B1', width: 5, height: 5 }]} />
+                            <View style={[S.themePreviewBar, { backgroundColor: darkTheme.textMuted, width: '60%' }]} />
+                          </View>
+                          <View style={[S.themePreviewCard, { backgroundColor: darkTheme.cardElevated, borderColor: darkTheme.glassBorder }]}>
+                            <View style={[S.themePreviewDot, { backgroundColor: darkTheme.primary, width: 5, height: 5 }]} />
+                            <View style={[S.themePreviewBar, { backgroundColor: darkTheme.textMuted, width: '45%' }]} />
+                          </View>
+                          <View style={[S.themePreviewBar, { backgroundColor: darkTheme.primary, height: 9, borderRadius: 5, width: '80%', alignSelf: 'center', marginTop: 2 }]} />
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: isDarkMode ? darkTheme.primary : darkTheme.textMuted }}>🌙 Noche</Text>
+                        {isDarkMode && <View style={[S.themeCheckDot, { backgroundColor: darkTheme.primary }]}><Text style={{ fontSize: 7, color: '#fff' }}>✓</Text></View>}
                       </View>
                     </TouchableOpacity>
-                  ))}
-              </View>
 
-              {/* Custom category CTA */}
-              {showPickerCustomInput ? (
-                <View style={[S.customCatInputCard, { backgroundColor: T.card, borderColor: T.primary }]}>
-                  <Text style={{ fontSize: 15, color: T.textSecondary, marginBottom: 12, fontWeight: '600' }}>
-                    💬 ¿Cómo se llama tu categoría?
-                  </Text>
-                  <View style={S.inlineRow}>
-                    <TextInput
-                      style={[S.inlineInput, { flex: 1, backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder, fontSize: 16 }]}
-                      placeholder="Ej: Delivery, Gym, Garage..."
-                      placeholderTextColor={T.textMuted}
-                      value={pickerCustomName}
-                      onChangeText={setPickerCustomName}
-                      onSubmitEditing={handleAddPickerCustom}
-                      returnKeyType="done"
-                      autoFocus
-                    />
-                    <TouchableOpacity style={[S.inlineOk, { backgroundColor: T.primary }]} onPress={handleAddPickerCustom}>
-                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>Crear</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={S.inlineCancel} onPress={() => setShowPickerCustomInput(false)}>
-                      <Text style={{ color: T.textMuted, fontSize: 18 }}>✕</Text>
+                    {/* Día */}
+                    <TouchableOpacity
+                      style={[
+                        S.themePickerCard,
+                        !isDarkMode
+                          ? { borderColor: lightTheme.primary, borderWidth: 1.5, ...Platform.select({ ios: { shadowColor: lightTheme.shadowPrimary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 5 }, web: { boxShadow: `0 0 16px ${lightTheme.shadowPrimary}` } as object, default: {} }) }
+                          : { borderColor: 'rgba(200,190,220,0.35)', borderWidth: 1 },
+                        { backgroundColor: lightTheme.bg },
+                      ]}
+                      onPress={() => setIsDarkMode(false)}
+                      activeOpacity={0.8}>
+                      {/* Mini preview día */}
+                      <View style={[S.themePreviewScreen, { backgroundColor: lightTheme.bg }]}>
+                        <View style={[S.themePreviewHeader, { backgroundColor: lightTheme.surface, borderBottomColor: lightTheme.glassBorder }]}>
+                          <View style={[S.themePreviewDot, { backgroundColor: lightTheme.primary }]} />
+                          <View style={[S.themePreviewBar, { backgroundColor: lightTheme.glassBorder, width: '45%' }]} />
+                        </View>
+                        <View style={{ flex: 1, padding: 5, gap: 3 }}>
+                          <View style={[S.themePreviewCard, { backgroundColor: lightTheme.card, borderColor: lightTheme.glassBorder }]}>
+                            <View style={[S.themePreviewDot, { backgroundColor: lightTheme.tertiary, width: 5, height: 5 }]} />
+                            <View style={[S.themePreviewBar, { backgroundColor: lightTheme.textMuted, width: '60%' }]} />
+                          </View>
+                          <View style={[S.themePreviewCard, { backgroundColor: lightTheme.cardElevated, borderColor: lightTheme.glassBorder }]}>
+                            <View style={[S.themePreviewDot, { backgroundColor: lightTheme.primary, width: 5, height: 5 }]} />
+                            <View style={[S.themePreviewBar, { backgroundColor: lightTheme.textMuted, width: '45%' }]} />
+                          </View>
+                          <View style={[S.themePreviewBar, { backgroundColor: lightTheme.primary, height: 9, borderRadius: 5, width: '80%', alignSelf: 'center', marginTop: 2 }]} />
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: !isDarkMode ? lightTheme.primary : '#9B8FBF' }}>☀️ Día</Text>
+                        {!isDarkMode && <View style={[S.themeCheckDot, { backgroundColor: lightTheme.primary }]}><Text style={{ fontSize: 7, color: '#fff' }}>✓</Text></View>}
+                      </View>
                     </TouchableOpacity>
                   </View>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  onPress={() => setShowPickerCustomInput(true)}
-                  style={[S.addCustomCatBtn, { borderColor: T.primary, backgroundColor: T.primaryBg }]}
-                  activeOpacity={0.8}>
-                  <Text style={[S.addCustomCatIcon, { color: T.primary }]}>＋</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[S.addCustomCatTitle, { color: T.primary }]}>
-                      ¿No aparece tu gasto?
-                    </Text>
-                    <Text style={[S.addCustomCatSub, { color: T.textSecondary }]}>
-                      Crea una categoría personalizada
-                    </Text>
-                  </View>
-                  <Text style={{ fontSize: 20, color: T.primary }}>→</Text>
-                </TouchableOpacity>
-              )}
 
-              <View style={S.navRow}>
-                <TouchableOpacity onPress={() => goToStep(2)} style={S.backBtn}>
-                  <Text style={[S.backText, { color: T.textMuted }]}>← Atrás</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[S.ctaBtn, { backgroundColor: T.primary, flex: 1 }]}
-                  onPress={openSavingsGoalModal}
-                  activeOpacity={0.84}>
-                  <Text style={S.ctaBtnText}>
-                    Ver presupuestos ({categoriasList.length}) →
-                  </Text>
-                </TouchableOpacity>
+                {/* Nota al pie */}
+                <Text style={{ fontSize: 11, color: T.textMuted, textAlign: 'center', lineHeight: 16 }}>
+                  Puedes cambiar la apariencia después en Ajustes.
+                </Text>
+
+                {/* Navegación */}
+                <View style={S.profileNavRow}>
+                  <TouchableOpacity
+                    onPress={() => goToStep(0)}
+                    style={[S.profileBackSq, { borderColor: T.glassBorder, backgroundColor: T.surface }]}
+                    accessibilityLabel="Atrás"
+                    activeOpacity={0.75}>
+                    <Text style={{ fontSize: 18, color: T.textMuted }}>←</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[S.profileCtaBtn, { backgroundColor: T.primary }]} onPress={handleProfileContinue} activeOpacity={0.84}>
+                    <Text style={[S.ctaBtnText, { fontSize: 15 }]}>Continuar →</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           )}
 
-          {/* ───────────── PASO 5 · Presupuestos mensuales ───────────────── */}
-          {step === 4 && (
-            <View style={S.stepContent}>
-              <View style={{ width: '100%', gap: 6 }}>
-                <Text style={[S.sectionTitle, { color: T.textPrimary }]}>Presupuestos mensuales</Text>
-                <View style={S.optionalBadge}>
-                  <Text style={{ fontSize: 11, color: T.textMuted, fontWeight: '600' }}>OPCIONAL</Text>
+          {/* ───────────── PASO 4 · Gastos del mes (sin scroll: grid compacta) ─ */}
+          {step === 3 && (
+            <View style={[S.stepContent, S.stepGastosLayout]}>
+              <View style={S.gastosScrollFreeTop}>
+                {/* Encabezado — una sola frase, menos altura */}
+                <View style={{ width: '100%' }}>
+                  <Text style={[S.gastosIntroTitle, { color: T.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
+                    Gastos de{' '}
+                    <Text style={{ color: T.primary }}>cada mes</Text>
+                  </Text>
+                  <Text
+                    style={[
+                      S.gastosIntroSub,
+                      {
+                        color: T.textSecondary,
+                        marginTop: 4,
+                        width: '100%',
+                        textShadowColor: isDarkMode ? 'rgba(0,0,0,0.5)' : 'rgba(124,58,237,0.2)',
+                        textShadowOffset: { width: 0, height: 0.5 },
+                        textShadowRadius: isDarkMode ? 3 : 2,
+                      },
+                    ]}>
+                    Toca las que apliquen.
+                  </Text>
+                  <Text
+                    style={[S.gastosLaterEditNote, { color: T.textMuted }]}
+                    numberOfLines={3}>
+                    Podrás cambiar estas categorías después si tienes gastos nuevos o ya no usas algunas.
+                  </Text>
                 </View>
-                <Text style={[S.sectionSub, { color: T.textSecondary }]}>
-                  ¿Cuánto quieres destinar a cada área? Editable en cualquier momento.
-                </Text>
+
+                {gastosSelectionHint ? (
+                  <View style={[S.gastosHintBanner, { borderColor: T.warning, backgroundColor: 'rgba(255,184,77,0.12)' }]}>
+                    <Text style={{ fontSize: 11, color: T.warning, textAlign: 'center', lineHeight: 16, fontWeight: '600' }}>
+                      {gastosSelectionHint}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* 3–4 columnas, fila emoji+texto → poca altura total */}
+                <View style={[S.gastosCardGrid, { columnGap: GASTOS_COL_GAP_H, rowGap: GASTOS_ROW_GAP_V }]}>
+                  {ALL_BUDGET_CATS.map((cat, index) => {
+                    const active = isCatSelected(cat.id);
+                    const anim = catChipAnims[index];
+                    return (
+                      <Animated.View
+                        key={cat.id}
+                        style={[
+                          S.gastosCardSlot,
+                          { width: gastosColWidth, opacity: anim.opacity, transform: [{ scale: anim.scale }] },
+                        ]}>
+                        <Animated.View
+                          pointerEvents="none"
+                          style={[StyleSheet.absoluteFillObject, { borderRadius: 20, backgroundColor: 'rgba(167,139,250,0.35)', opacity: anim.glow }]}
+                        />
+                        <TouchableOpacity
+                          style={[
+                            S.gastosCard,
+                            active
+                              ? { borderColor: T.primary, borderWidth: 1.5, backgroundColor: T.primaryBg,
+                                  ...Platform.select({
+                                    ios: { shadowColor: T.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.28, shadowRadius: 8 },
+                                    android: { elevation: 4 },
+                                    web: { boxShadow: `0 3px 14px ${T.shadowPrimary}, 0 1px 0 rgba(255,255,255,0.06) inset` } as object,
+                                    default: {},
+                                  }) }
+                              : {
+                                  borderColor: T.glassBorder,
+                                  borderWidth: 1,
+                                  backgroundColor: T.cardElevated,
+                                  ...Platform.select({
+                                    ios: { shadowColor: '#0b1020', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.22, shadowRadius: 5 },
+                                    android: { elevation: 2 },
+                                    web: { boxShadow: '0 2px 12px rgba(0,0,0,0.22), 0 1px 0 rgba(255,255,255,0.05) inset' } as object,
+                                    default: {},
+                                  }),
+                                },
+                          ]}
+                          onPress={() => togglePickerCat(cat)}
+                          activeOpacity={0.72}
+                          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                          accessibilityRole="button">
+                          <View style={S.gastosCardRow}>
+                            <Text style={S.gastosCardEmojiInline} allowFontScaling={false}>{cat.emoji}</Text>
+                            <Text
+                              style={[S.gastosCardLabel, { color: active ? T.primary : T.textPrimary }]}
+                              numberOfLines={1}
+                              ellipsizeMode="tail">
+                              {cat.nombre}
+                            </Text>
+                          </View>
+                          {active && (
+                            <View style={[S.gastosCardCheck, { backgroundColor: T.primary }]}>
+                              <Text style={{ fontSize: 8, color: '#fff', fontWeight: '800' }}>✓</Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </Animated.View>
+                    );
+                  })}
+
+                  {categoriasList
+                    .filter((c) => !ALL_BUDGET_CATS.find((bc) => bc.id === c.id))
+                    .map((cat) => (
+                      <View key={cat.id} style={[S.gastosCardSlot, { width: gastosColWidth }]}>
+                        <TouchableOpacity
+                          style={[
+                            S.gastosCard,
+                            {
+                              borderColor: T.primary,
+                              borderWidth: 1.5,
+                              backgroundColor: T.primaryBg,
+                              ...Platform.select({
+                                ios: { shadowColor: T.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.22, shadowRadius: 7 },
+                                android: { elevation: 3 },
+                                web: { boxShadow: `0 3px 12px ${T.shadowPrimary}` } as object,
+                                default: {},
+                              }),
+                            },
+                          ]}
+                          onPress={() => handleRemoveCat(cat.id)}
+                          activeOpacity={0.72}
+                          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                          accessibilityRole="button">
+                          <View style={S.gastosCardRow}>
+                            <Text style={S.gastosCardEmojiInline} allowFontScaling={false}>{cat.emoji}</Text>
+                            <Text style={[S.gastosCardLabel, { color: T.primary }]} numberOfLines={1} ellipsizeMode="tail">
+                              {cat.nombre}
+                            </Text>
+                          </View>
+                          <View style={[S.gastosCardCheck, { backgroundColor: T.primary }]}>
+                            <Text style={{ fontSize: 8, color: '#fff', fontWeight: '800' }}>✓</Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                </View>
               </View>
 
-              {selectedRangeMeta && (
-                <View style={[S.suggBadge, { backgroundColor: T.primaryBg, borderColor: T.primaryBorder }]}>
-                  <Text style={{ fontSize: 13, color: T.primary }}>
-                    💡 Sugerido para <Text style={{ fontWeight: '700' }}>{selectedRangeMeta.label}</Text>
-                    {' · '}montos editables
-                  </Text>
-                </View>
-              )}
-
-              {projectionIncome != null && projectedSavings != null && (
-                <View style={[S.projectionCard, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
-                  <Text style={[S.projectionTitle, { color: T.textPrimary }]}>Proyección con tu ingreso</Text>
-                  <Text style={{ fontSize: 13, color: T.textSecondary, marginTop: 4 }}>
-                    Ingreso considerado: <Text style={{ fontWeight: '700', color: T.textPrimary }}>{currencySymbol} {money(projectionIncome)}</Text>
-                  </Text>
-                  <Text style={{ fontSize: 13, color: T.textSecondary, marginTop: 2 }}>
-                    Presupuestado: <Text style={{ fontWeight: '700', color: T.textPrimary }}>{currencySymbol} {money(projectedAssigned)}</Text>
-                  </Text>
-                  <Text style={{ fontSize: 13, color: T.textSecondary, marginTop: 2 }}>
-                    Margen de ahorro: <Text style={{ fontWeight: '800', color: projectedSavings > 0 ? '#22c55e' : T.textPrimary }}>
-                      {currencySymbol} {money(projectedSavings)}
-                      {projectedSavingsPct != null ? ` (${Math.round(projectedSavingsPct)}%)` : ''}
+              <View style={S.gastosFooterStack}>
+                {showPickerCustomInput ? (
+                  <View style={[S.customCatInputCard, S.customCatInputCardGastos, S.gastosFooterCard, { backgroundColor: T.card, borderColor: T.primary }]}>
+                    <Text style={{ fontSize: 13, color: T.textSecondary, marginBottom: 8, fontWeight: '600' }}>
+                      Nombre de la categoría
                     </Text>
-                  </Text>
-                </View>
-              )}
-
-              {/* Category list with amount inputs */}
-              <View style={{ gap: 8, width: '100%' }}>
-                {categoriasList.map((cat) => (
-                  <View key={cat.id} style={[S.budgetCard, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
-                    <TextInput
-                      value={cat.emoji}
-                      onChangeText={(val) => setCategoriasList((prev) => prev.map((c) => c.id === cat.id ? { ...c, emoji: val } : c))}
-                      style={[S.emojiInput, { backgroundColor: T.surface, borderColor: T.glassBorder, color: T.textPrimary }]}
-                      maxLength={2}
-                    />
-                    <Text style={[S.budgetName, { color: T.textPrimary }]}>{cat.nombre}</Text>
-                    <View style={[S.amountWrap, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
-                      <Text style={{ fontSize: 12, color: T.textMuted, marginRight: 3 }}>{currencySymbol}</Text>
+                    <View style={S.inlineRow}>
                       <TextInput
-                        style={[S.amountInput, { color: T.textPrimary }]}
-                        placeholder="0"
+                        style={[S.inlineInput, { flex: 1, backgroundColor: T.surface, color: T.textPrimary, borderColor: T.glassBorder, fontSize: 14, height: 40 }]}
+                        placeholder="Ej: Delivery, gym..."
                         placeholderTextColor={T.textMuted}
-                        value={presupuestos[cat.nombre] ?? ''}
-                        onChangeText={(val) => setPresupuestos((prev) => ({ ...prev, [cat.nombre]: val }))}
-                        keyboardType="decimal-pad"
+                        value={pickerCustomName}
+                        onChangeText={setPickerCustomName}
+                        onSubmitEditing={handleAddPickerCustom}
+                        returnKeyType="done"
+                        autoFocus
                       />
+                      <TouchableOpacity style={[S.inlineOk, { backgroundColor: T.primary, height: 40 }]} onPress={handleAddPickerCustom}>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Crear</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={S.inlineCancel} onPress={() => setShowPickerCustomInput(false)}>
+                        <Text style={{ color: T.textMuted, fontSize: 16 }}>✕</Text>
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity onPress={() => handleRemoveCat(cat.id)} style={S.removeBtn}>
-                      <Text style={{ color: T.textMuted, fontSize: 15 }}>✕</Text>
-                    </TouchableOpacity>
                   </View>
-                ))}
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => setShowPickerCustomInput(true)}
+                    style={[S.addCustomCatBtn, S.addCustomCatBtnGastos, S.gastosFooterCard, { borderColor: T.primary, backgroundColor: T.primaryBg }]}
+                    activeOpacity={0.8}>
+                    <Text style={[S.addCustomCatIcon, S.addCustomCatIconGastos, { color: T.primary }]}>＋</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[S.addCustomCatTitle, S.addCustomCatTitleGastos, { color: T.primary }]} numberOfLines={1}>
+                        Añade categoría
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 16, color: T.primary }}>→</Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={S.gastosNavRowFoot}>
+                  <TouchableOpacity
+                    onPress={() => goToStep(2)}
+                    style={[S.gastosBackFoot, { borderColor: T.glassBorder, backgroundColor: T.surface }]}
+                    activeOpacity={0.75}>
+                    <Text style={{ fontSize: 18, color: T.textMuted }}>←</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[S.gastosCtaBtn, { backgroundColor: categoriasList.length > 0 ? T.primary : T.surface, borderWidth: categoriasList.length > 0 ? 0 : 1, borderColor: T.glassBorder }]}
+                    onPress={goGastosToFuentesStep}
+                    activeOpacity={0.84}>
+                    <Text style={[S.ctaBtnText, { fontSize: 14 }, categoriasList.length === 0 && { color: T.textMuted }]}>
+                      Continuar{categoriasList.length > 0 ? ` (${categoriasList.length})` : ''} →
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
-              {/* Quick-add from picker */}
-              <TouchableOpacity
-                style={[S.dashedBtn, { borderColor: T.glassBorder }]}
-                onPress={() => goToStep(3)}>
-                <Text style={{ color: T.textSecondary, fontSize: 13, fontWeight: '600' }}>
-                  ← Cambiar categorías
-                </Text>
-              </TouchableOpacity>
-
-              <View style={S.navRow}>
-                <TouchableOpacity onPress={() => goToStep(3)} style={S.backBtn}>
-                  <Text style={[S.backText, { color: T.textMuted }]}>← Atrás</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[S.ctaBtn, { backgroundColor: T.primary, flex: 1 }]} onPress={() => goToStep(5)} activeOpacity={0.84}>
-                  <Text style={S.ctaBtnText}>Continuar →</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           )}
 
-          {/* ───────────── PASO 6 · Fuentes de ingreso ─────────────────── */}
-          {step === 5 && (
+          {/* ───────────── PASO 5 · Fuentes de ingreso ─────────────────── */}
+          {step === 4 && (
             <View style={S.stepContent}>
               <View style={{ width: '100%', gap: 6 }}>
                 <Text style={[S.sectionTitle, { color: T.textPrimary }]}>Fuentes de ingreso</Text>
@@ -1103,7 +1334,8 @@ export default function OnboardingScreen() {
               <View style={[S.summaryCard, { backgroundColor: T.card, borderColor: T.primaryBorder }]}>
                 <Text style={[S.summaryTitle, { color: T.textPrimary }]}>¡Ya casi listo!</Text>
                 <Text style={[S.summarySub, { color: T.textSecondary }]}>
-                  Guardaremos tu perfil y las categorías que configuraste. Podrás editarlas desde tu perfil.
+                  Guardamos tu perfil y categorías. El siguiente paso es registrar gastos: así la app entiende tu mes y
+                  podrá sugerirte presupuestos con sentido.
                 </Text>
               </View>
 
@@ -1121,11 +1353,11 @@ export default function OnboardingScreen() {
                     <Text style={[S.finishBtnText, { color: T.textMuted }]}>Guardando tu perfil...</Text>
                   </View>
                 ) : (
-                  <Text style={S.finishBtnText}>Comenzar a organizar →</Text>
+                  <Text style={S.finishBtnText}>Ir a registrar gastos →</Text>
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ paddingVertical: 8 }} onPress={() => goToStep(4)}>
+              <TouchableOpacity style={{ paddingVertical: 8 }} onPress={() => goToStep(3)}>
                 <Text style={[S.backText, { color: T.textMuted, textAlign: 'center' }]}>← Volver</Text>
               </TouchableOpacity>
             </View>
@@ -1133,65 +1365,6 @@ export default function OnboardingScreen() {
 
         </ScrollView>
       </Animated.View>
-
-      {/* ── Savings goal modal (before budgets 4/5) ─────────────────────── */}
-      <Modal
-        visible={showSavingsGoalModal}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setShowSavingsGoalModal(false)}>
-        <View style={S.approxBackdrop}>
-          <View style={[S.savingsSheet, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
-            <Text style={S.savingsIcon}>🎯</Text>
-            <Text style={[S.savingsTitle, { color: T.textPrimary }]}>¿Cuánto te gustaría ahorrar?</Text>
-            <Text style={[S.savingsSub, { color: T.textSecondary }]}>
-              Ajustaremos tus presupuestos recomendados para dejar un margen claro de ahorro.
-            </Text>
-
-            <View style={{ width: '100%', marginBottom: 10 }}>
-              <Text style={{ fontSize: 13, color: T.textSecondary, marginBottom: 8, textAlign: 'center', fontWeight: '700' }}>
-                Ingreso considerado:{' '}
-                <Text style={{ color: T.textPrimary, fontWeight: '800' }}>
-                  {currencySymbol} {money(savingsGoalIncomeBase)}
-                </Text>
-              </Text>
-              <Text style={{ fontSize: 14, color: T.primary, marginBottom: 10, textAlign: 'center', fontWeight: '800' }}>
-                Recomendado:{' '}
-                <Text style={{ color: '#fff', fontWeight: '800' }}>
-                  {currencySymbol} {money(recommendedSavingsAmount)} ({Math.round(recommendedSavingsPct)}%)
-                </Text>
-              </Text>
-              <View style={[S.savingsInputWrap, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
-                <Text style={{ fontSize: 15, color: T.textMuted, marginRight: 6 }}>S/.</Text>
-                <TextInput
-                  style={[S.savingsInput, { color: T.textPrimary }]}
-                  value={savingsGoalInput}
-                  onChangeText={setSavingsGoalInput}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={T.textMuted}
-                  autoFocus
-                />
-              </View>
-              <View style={S.savingsMarginWrap}>
-                <Text style={S.savingsMarginLabel}>Margen de ahorro</Text>
-                <Text style={S.savingsMarginValue}>{Math.max(0, Math.round(savingsGoalPct))}%</Text>
-              </View>
-            </View>
-
-            <Text style={{ fontSize: 11, color: T.textMuted, textAlign: 'center', marginBottom: 14 }}>
-              Ese porcentaje se reservará como meta de ahorro mensual.
-            </Text>
-
-            <TouchableOpacity
-              style={[S.ctaBtn, { backgroundColor: T.primary }]}
-              onPress={applySavingsGoalAndContinue}
-              activeOpacity={0.84}>
-              <Text style={S.ctaBtnText}>Aplicar y continuar →</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* ── Approximate income modal ─────────────────────────────────────── */}
       <Modal
@@ -1201,30 +1374,51 @@ export default function OnboardingScreen() {
         onRequestClose={() => setShowApproxModal(false)}>
         <View style={S.approxBackdrop}>
           <View style={[S.approxSheet, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
-            <Text style={{ fontSize: 22, marginBottom: 6, textAlign: 'center' }}>💰</Text>
+            <Text style={{ fontSize: 20, marginBottom: 4, textAlign: 'center' }}>💰</Text>
             <Text style={[S.approxTitle, { color: T.textPrimary }]}>
               {pendingSalarioId === 'custom' ? 'Ingresa tu monto exacto' : '¿Puedes poner un aproximado?'}
             </Text>
-            <Text style={{ fontSize: 13, color: T.textSecondary, textAlign: 'center', marginBottom: 20, lineHeight: 20 }}>
+            <Text style={{ fontSize: 12, color: T.textSecondary, textAlign: 'center', marginBottom: 20, lineHeight: 18 }}>
               {pendingSalarioId === 'custom'
-                ? `Usaremos este monto para proyectar{'\n'}presupuestos recomendados para ti.`
-                : `Usaremos este monto para sugerirte{'\n'}presupuestos más precisos.`}
+                ? 'Referencia interna para ordenar la experiencia; podrás afinar todo con tus registros reales.'
+                : 'Referencia aproximada para la app; luego tus gastos e ingresos reales marcarán el ritmo.'}
             </Text>
 
-            <View style={[S.approxInputWrap, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
-              <Text style={{ fontSize: 15, color: T.textMuted, marginRight: 6 }}>S/.</Text>
-              <TextInput
-                style={[S.approxInput, { color: T.textPrimary }]}
-                value={ingresoAprox}
-                onChangeText={setIngresoAprox}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor={T.textMuted}
-                autoFocus
-              />
+            <View
+              style={[
+                S.approxInputOuter,
+                Platform.OS === 'ios' && {
+                  shadowColor: T.primary,
+                  shadowOpacity: 0.22,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 3 },
+                },
+                Platform.OS === 'android' && { elevation: 5 },
+                Platform.OS === 'web' && {
+                  boxShadow: `0 2px 0 0 ${T.primaryBorder}, 0 8px 24px ${T.shadowPrimary}`,
+                },
+              ]}>
+              <View style={[S.approxInputInner, { backgroundColor: T.surface, borderColor: T.primary }]}>
+                <Text style={[S.approxPrefix, { color: T.textMuted }]}>S/.</Text>
+                <TextInput
+                  style={[
+                    S.approxInput,
+                    { color: T.textPrimary },
+                    Platform.OS === 'web' && ({ outlineStyle: 'none' } as object),
+                  ]}
+                  value={ingresoAprox}
+                  onChangeText={setIngresoAprox}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={T.textMuted}
+                  autoFocus
+                  underlineColorAndroid="transparent"
+                  selectionColor="rgba(124,58,237,0.35)"
+                />
+              </View>
             </View>
 
-            <Text style={{ fontSize: 11, color: T.textMuted, textAlign: 'center', marginTop: 8, marginBottom: 20 }}>
+            <Text style={{ fontSize: 9, color: T.textMuted, textAlign: 'center', marginTop: 6, marginBottom: 16, opacity: 0.5 }}>
               🔒 Solo tú ves este dato · editable luego
             </Text>
 
@@ -1237,10 +1431,10 @@ export default function OnboardingScreen() {
             <TouchableOpacity
               style={{ paddingVertical: 12, alignItems: 'center' }}
               onPress={() => {
-                applyBudgetRecommendations(pendingSalarioId as SalarioId, SALARY_MEDIAN[pendingSalarioId as SalarioId] || 3000);
                 setShowApproxModal(false);
+                scrollToIncomeContinueAfterApprox();
               }}>
-              <Text style={{ fontSize: 13, color: T.textMuted }}>
+              <Text style={{ fontSize: 11, color: T.textMuted, opacity: 0.5 }}>
                 {pendingSalarioId === 'custom' ? 'Omitir por ahora' : 'Omitir, usar estimado del rango'}
               </Text>
             </TouchableOpacity>
@@ -1264,41 +1458,351 @@ const S = StyleSheet.create({
   progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
   progressFill:  { height: 3, borderRadius: 2 },
   slide:         { paddingHorizontal: 24, paddingBottom: 44 },
+  /** Menos relleno inferior en gastos (grid ya ocupa sitio). */
+  slideGastosTight: { paddingBottom: 12, flexGrow: 1 },
   stepContent:   { gap: 20, alignItems: 'center', width: '100%', paddingTop: 4 },
+  stepIncomeLayout: { gap: 12, paddingTop: 0 },
+  stepProfileLayout: { gap: 10, paddingTop: 0 },
 
-  // Hero (step 0)
-  heroSection: { alignItems: 'center', gap: 10, paddingTop: 4, paddingBottom: 4 },
-  iconBox:     { width: 72, height: 72, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  heroTitle:   { fontSize: 30, fontWeight: '800', textAlign: 'center', lineHeight: 40, fontFamily: 'PlusJakartaSans_700Bold' },
-  heroSub:     { fontSize: 14, textAlign: 'center', lineHeight: 22, fontFamily: 'Manrope_400Regular' },
-
-  // Stat row
-  statRow:   { flexDirection: 'row', gap: 8, width: '100%', alignItems: 'stretch' },
-  statCard:  {
+  // Theme picker (onboarding step 2)
+  themePickerCard: {
     flex: 1,
-    minHeight: 128,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+    borderRadius: 16,
+    overflow: 'hidden' as const,
+    gap: 8,
+    padding: 8,
   },
-  statValue: { fontSize: 18, fontWeight: '800', fontFamily: 'PlusJakartaSans_700Bold', marginBottom: 6 },
-  statLabelWrap: {
-    flex: 1,
+  themePreviewScreen: {
+    height: 100,
+    borderRadius: 10,
+    overflow: 'hidden' as const,
+    backgroundColor: darkTheme.bg,
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.12)',
+  },
+  themePreviewHeader: {
+    height: 18,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    paddingHorizontal: 5,
+    gap: 4,
+    borderBottomWidth: 1,
+  },
+  themePreviewDot: { width: 6, height: 6, borderRadius: 3 },
+  themePreviewBar: { height: 4, borderRadius: 2, backgroundColor: 'rgba(124,58,237,0.2)' },
+  themePreviewCard: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    borderRadius: 6,
+    padding: 5,
+    borderWidth: 1,
+  },
+  themeCheckDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  profileColumn: {
     width: '100%',
-    justifyContent: 'center',
+    maxWidth: 392,
+    alignSelf: 'center',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  profileHeaderCenter: { width: '100%', alignItems: 'center', gap: 4 },
+  profileSectionHeader: { width: '100%', alignItems: 'center', gap: 2, marginBottom: 2 },
+  profileSectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center' as const,
+    letterSpacing: 0.15,
+  },
+  profileSectionMeta: { fontSize: 10, textAlign: 'center' as const },
+  profileLifeChipsWrap: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'center' as const,
+    gap: 5,
+    rowGap: 5,
+    width: '100%',
+  },
+  profileLifeChip: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: 0,
+    flexGrow: 1,
+    flexBasis: '31%',
+    maxWidth: '48%',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    minHeight: 30,
+  },
+  profileLifeChipLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    textAlign: 'center' as const,
+    lineHeight: 13,
     paddingHorizontal: 2,
   },
-  statLabel: { fontSize: 11, textAlign: 'center', lineHeight: 16, fontFamily: 'Manrope_400Regular' },
-  statSpoiler: {
-    marginTop: 6,
-    fontSize: 15,
+  profileNavRow: { flexDirection: 'row', width: '100%', gap: 10, alignItems: 'center', marginTop: 4 },
+  profileBackSq: {
+    width: 48,
+    height: 44,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  profileCtaBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 8,
+    minWidth: 0,
+    maxWidth: 300,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  stepGastosLayout: { gap: 4, paddingTop: 0, width: '100%' as const, alignItems: 'stretch' as const },
+  gastosScrollFreeTop: { width: '100%', gap: 4 },
+
+  // Gastos: encabezado bajo
+  gastosIntroTitle: {
+    fontSize: 17,
     fontWeight: '800',
-    color: '#fff',
     fontFamily: 'PlusJakartaSans_700Bold',
     textAlign: 'center',
+    lineHeight: 22,
+    letterSpacing: -0.3,
+  },
+  gastosIntroSub: {
+    fontSize: 11,
+    fontFamily: 'Manrope_400Regular',
+    textAlign: 'center',
+    lineHeight: 15,
+  },
+  gastosLaterEditNote: {
+    marginTop: 6,
+    fontSize: 10,
+    fontFamily: 'Manrope_400Regular',
+    textAlign: 'center',
+    lineHeight: 14,
+    paddingHorizontal: 6,
+    opacity: 0.92,
+  },
+  gastosCountBadge: {
+    alignSelf: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  gastosHintBanner: {
+    width: '100%',
+    borderRadius: 9,
+    borderWidth: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+  },
+  gastosFooterStack: {
+    width: '100%',
+    maxWidth: 380,
+    alignSelf: 'center',
+    alignItems: 'stretch',
+    gap: 6,
+    marginTop: 0,
+  },
+  gastosFooterCard: { width: '100%', borderRadius: 12, overflow: 'hidden' as const },
+  gastosNavRowFoot: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gastosBackFoot: {
+    width: 52,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  gastosCtaBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    minWidth: 0,
+    maxWidth: 300,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+
+  // Hero (step 0)
+  heroSection: { alignItems: 'center', gap: 12, paddingTop: 4, paddingBottom: 4 },
+  heroIconOuter: { marginBottom: 6 },
+  /** Borde fino tipo neón: ~1px de gradiente visible alrededor del relleno. */
+  heroIconNeonRing: {
+    width: 74,
+    height: 74,
+    borderRadius: 24,
+    padding: 1,
+  },
+  heroIconInner: {
+    flex: 1,
+    borderRadius: 23,
+    overflow: 'hidden' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroIconInnerShine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: '52%',
+    borderTopLeftRadius: 23,
+    borderTopRightRadius: 23,
+  },
+  heroIconEmoji: {
+    fontSize: 31,
+    lineHeight: 34,
+    zIndex: 1,
+    textShadowColor: 'rgba(203,166,255,0.55)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
+  heroTitle:   {
+    fontSize: 30,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 38,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    maxWidth: 400,
+    alignSelf: 'center',
+    letterSpacing: -0.6,
+  },
+  heroSub:     { fontSize: 14, textAlign: 'center', lineHeight: 22, fontFamily: 'Manrope_400Regular', maxWidth: 400, alignSelf: 'center' },
+
+  // Stat insight deck (paso 0)
+  statDeck: {
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingTop: 18,
+    paddingBottom: 16,
+    paddingHorizontal: 14,
+    gap: 14,
+  },
+  statDeckHeader: { width: '100%', gap: 6, paddingHorizontal: 2 },
+  statDeckKicker: {
+    fontSize: 10,
+    fontWeight: '800',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    letterSpacing: 2.2,
+    textTransform: 'uppercase' as const,
+  },
+  statDeckTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    lineHeight: 21,
+    letterSpacing: -0.2,
+  },
+  statDeckRule: { height: 1, width: 44, borderRadius: 1, marginTop: 2, opacity: 0.85 },
+
+  statRow: { flexDirection: 'row', gap: 10, width: '100%', alignItems: 'stretch' },
+  statRowStacked: { flexDirection: 'column', gap: 10 },
+
+  statAnimSlotRow: { flex: 1, minWidth: 0 },
+  statAnimSlotStacked: { width: '100%' },
+
+  statCardPremiumShell: {
+    borderRadius: 18,
+    minHeight: 148,
+  },
+  statCardOverflow: { overflow: 'hidden' as const },
+  statCardGlowBar: { width: '100%', height: 3 },
+  statCardInner: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
+    gap: 8,
+    alignItems: 'stretch',
+  },
+  statCardInnerStacked: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  statCardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 8,
+    marginBottom: 2,
+  },
+  statCardMetaRowStacked: { marginBottom: 4 },
+  statEyebrow: {
+    flex: 1,
+    fontSize: 9,
+    fontWeight: '800',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    letterSpacing: 1.35,
+    textTransform: 'uppercase' as const,
+  },
+  statIndex: {
+    fontSize: 10,
+    fontWeight: '700',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    letterSpacing: 0.8,
+    opacity: 0.85,
+  },
+  statValuePremium: {
+    fontSize: 26,
+    fontWeight: '800',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    letterSpacing: -1.1,
+    lineHeight: 30,
+    textAlign: 'center' as const,
+  },
+  statValuePremiumAccent: {
+    textShadowColor: 'rgba(124,58,237,0.45)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
+  statValuePremiumStacked: { fontSize: 28, lineHeight: 32, textAlign: 'left' as const },
+  statLabelPremium: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+    fontFamily: 'Manrope_500Medium',
+    fontWeight: '500',
+    letterSpacing: 0.1,
+  },
+  statLabelStacked: { textAlign: 'left', alignSelf: 'stretch' },
+  statFooterPillPremium: {
+    alignSelf: 'center',
+    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  statFooterPillStacked: { alignSelf: 'flex-start' },
+  statFooterTextPremium: {
+    fontSize: 11,
+    fontWeight: '800',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    letterSpacing: 0.15,
   },
 
   // Social proof
@@ -1306,10 +1810,26 @@ const S = StyleSheet.create({
 
   // Salary cards (step 1)
   salaryCard:  { flexDirection: 'row', alignItems: 'center', borderRadius: 14, padding: 14, gap: 12 },
+  salaryCardIncome: { paddingVertical: 9, paddingHorizontal: 11, gap: 9, borderRadius: 12 },
+  salaryIconIncome: { fontSize: 18, width: 28, textAlign: 'center' as const },
+  salaryLabelIncome: { fontSize: 13 },
+  salarySubIncome: { fontSize: 10, lineHeight: 14, marginTop: 1 },
+  radioCircleIncome: { width: 18, height: 18, borderRadius: 9 },
+  radioInnerIncome: { width: 6, height: 6, borderRadius: 3 },
   salaryLabel: { fontSize: 15, fontWeight: '700', fontFamily: 'PlusJakartaSans_600SemiBold' },
   radioCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   radioInner:  { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
   privacyNote: { width: '100%', borderRadius: 12, borderWidth: 1, padding: 14 },
+  privacyNoteIncome: { paddingVertical: 9, paddingHorizontal: 11 },
+  privacyTextIncome: { fontSize: 11, lineHeight: 15 },
+  sectionTitleIncome: {
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 26,
+    textAlign: 'center' as const,
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  sectionSubIncome: { fontSize: 12, lineHeight: 17, textAlign: 'center' as const, fontFamily: 'Manrope_400Regular' },
 
   // Section headers
   sectionTitle: { fontSize: 24, fontWeight: '800', lineHeight: 32, fontFamily: 'PlusJakartaSans_700Bold' },
@@ -1326,11 +1846,17 @@ const S = StyleSheet.create({
 
   // Profile fields
   fieldGroup:     { width: '100%', borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8, gap: 2 },
+  fieldGroupProfile: { paddingHorizontal: 12, paddingTop: 7, paddingBottom: 6, borderRadius: 8 },
   fieldLabel:     { fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
+  fieldLabelProfile: { fontSize: 9, letterSpacing: 0.55 },
   fieldInput:     { fontSize: 17, paddingVertical: 4, fontFamily: 'PlusJakartaSans_500Medium' },
+  fieldInputProfile: { fontSize: 16, paddingVertical: 2 },
   currencyCard:   { borderRadius: 14, padding: 16, alignItems: 'center', gap: 6, borderWidth: 1 },
+  currencyCardProfile: { paddingVertical: 10, paddingHorizontal: 10, gap: 4, borderRadius: 8 },
   flagBadge:      { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  flagBadgeProfile: { width: 32, height: 32, borderRadius: 8 },
   currencySymbol: { fontSize: 20, fontWeight: '800', fontFamily: 'PlusJakartaSans_700Bold' },
+  currencySymbolProfile: { fontSize: 17 },
 
   // Labels / pills
   label:          { fontSize: 13, fontWeight: '600', letterSpacing: 0.2 },
@@ -1341,6 +1867,7 @@ const S = StyleSheet.create({
 
   // Payment method grid
   methodGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  methodGridProfile: { gap: 6 },
   methodCard: {
     width: '30%',
     alignItems: 'center',
@@ -1352,15 +1879,28 @@ const S = StyleSheet.create({
     position: 'relative',
     gap: 2,
   },
+  methodCardProfile: { paddingVertical: 8, paddingHorizontal: 4, borderRadius: 8 },
   methodCheck: {
     position: 'absolute', top: 5, right: 5,
     width: 14, height: 14, borderRadius: 7,
     alignItems: 'center', justifyContent: 'center',
   },
-  netflixLogo: { width: 28, height: 28 },
 
   // Bank grid
   bankGrid: { gap: 8 },
+  bankGridProfile: { gap: 6 },
+  bankCardProfile: { paddingVertical: 9, paddingHorizontal: 11, gap: 8, borderRadius: 8 },
+  banksExpandProfile: { paddingVertical: 9, paddingHorizontal: 11, borderRadius: 8 },
+  banksExpandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
   bankCard: {
     flexDirection: 'row', alignItems: 'center',
     borderRadius: 14, borderWidth: 1,
@@ -1380,6 +1920,9 @@ const S = StyleSheet.create({
     borderRadius: 12, borderWidth: 1, borderStyle: 'dashed',
     paddingVertical: 12, paddingHorizontal: 16,
   },
+  addOtherBtnProfile: { paddingVertical: 9, paddingHorizontal: 12, gap: 6, borderRadius: 8 },
+  countBadgeProfile: { width: 24, height: 24, borderRadius: 12 },
+  countBadgeTextProfile: { fontSize: 11 },
 
   // Inline inputs
   inlineRow:    { flexDirection: 'row', gap: 8, width: '100%', alignItems: 'center' },
@@ -1423,17 +1966,6 @@ const S = StyleSheet.create({
   finishBtnText: { color: '#fff', fontWeight: '700', fontSize: 17, fontFamily: 'PlusJakartaSans_700Bold' },
 
   chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  catChip: {
-    width: '30%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    position: 'relative',
-    gap: 4,
-  },
   chipCheck: {
     position: 'absolute',
     top: 5,
@@ -1443,6 +1975,58 @@ const S = StyleSheet.create({
     borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  suggBadgeGastos: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 9 },
+
+  // Gastos: chips tipo nube; columnGap/rowGap se pasan inline (col estrecho, filas más separadas)
+  gastosCardGrid: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    width: '100%' as const,
+    justifyContent: 'flex-start' as const,
+  },
+  gastosCardSlot: { position: 'relative' as const },
+  gastosCard: {
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingLeft: 6,
+    paddingRight: 5,
+    justifyContent: 'center' as const,
+    width: '100%' as const,
+    minHeight: 40,
+  },
+  gastosCardRow: {
+    width: '100%' as const,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 3,
+    paddingRight: 9,
+    minHeight: 24,
+  },
+  gastosCardEmojiInline: {
+    fontSize: 16,
+    lineHeight: 20,
+    width: 24,
+    textAlign: 'center' as const,
+  },
+  gastosCardLabel: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 10.5,
+    fontWeight: '600' as const,
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+    textAlign: 'left' as const,
+    lineHeight: 13,
+  },
+  gastosCardCheck: {
+    position: 'absolute' as const,
+    top: 5,
+    right: 5,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
   },
 
   speechBubble: {
@@ -1464,65 +2048,96 @@ const S = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 14,
   },
+  addCustomCatBtnGastos: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    gap: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
   addCustomCatIcon: {
     fontSize: 36,
     fontWeight: '300',
     lineHeight: 40,
   },
+  addCustomCatIconGastos: { fontSize: 20, lineHeight: 22 },
   addCustomCatTitle: {
     fontSize: 20,
     fontWeight: '800',
     fontFamily: 'PlusJakartaSans_700Bold',
     lineHeight: 26,
   },
+  addCustomCatTitleGastos: { fontSize: 13, lineHeight: 17 },
   addCustomCatSub: {
     fontSize: 13,
     marginTop: 2,
     fontFamily: 'Manrope_400Regular',
   },
+  addCustomCatSubGastos: { fontSize: 11, marginTop: 1 },
   customCatInputCard: {
     width: '100%',
     borderRadius: 18,
     borderWidth: 2,
     padding: 18,
   },
+  customCatInputCardGastos: { borderRadius: 14, borderWidth: 1.5, padding: 12 },
 
-  // Approximate income modal
+  // Approximate income modal (compact width)
   approxBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.65)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+    paddingHorizontal: 40,
   },
   approxSheet: {
     width: '100%',
-    borderRadius: 24,
+    maxWidth: 300,
+    alignSelf: 'center',
+    borderRadius: 20,
     borderWidth: 1,
-    padding: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
     alignItems: 'center',
   },
   approxTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
-  approxInputWrap: {
+  approxInputOuter: {
+    width: '100%',
+    borderRadius: 12,
+  },
+  approxInputInner: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    height: 56,
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 2,
+    paddingLeft: 12,
+    paddingRight: 10,
+    overflow: 'hidden',
+  },
+  approxPrefix: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginRight: 8,
+    minWidth: 28,
   },
   approxInput: {
     flex: 1,
-    fontSize: 22,
+    minWidth: 0,
+    fontSize: 20,
     fontWeight: '700',
     fontFamily: 'PlusJakartaSans_700Bold',
+    padding: 0,
+    margin: 0,
+    ...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const } : {}),
   },
 
   // Savings goal modal (compact layout)

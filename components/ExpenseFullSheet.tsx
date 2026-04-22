@@ -8,12 +8,13 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,7 +27,6 @@ import AnimatedRN, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ScrollView } from 'react-native-gesture-handler';
 
 import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
@@ -36,166 +36,66 @@ import { useFinanceStore } from '@/store/useFinanceStore';
 import type { EstadoDeAnimo, MonedaCode } from '@/types';
 import { DEFAULT_BANCOS_DISPONIBLES, DEFAULT_METODOS_DE_PAGO } from '@/types';
 
-const SECTION = 24;
 const SPRING_OPEN = { damping: 26, stiffness: 280 } as const;
 const SPRING_CLOSE = { damping: 28, stiffness: 260 } as const;
 
-const EMOCIONES: { key: EstadoDeAnimo | null; label: string; emoji: string }[] = [
-  { key: null, label: 'Ninguno', emoji: '⬜' },
-  { key: 'CONTENTO', label: 'Contento', emoji: '😊' },
-  { key: 'NEUTRAL', label: 'Neutral', emoji: '😐' },
-  { key: 'PREOCUPADO', label: 'Preocupado', emoji: '😟' },
-  { key: 'MOLESTO', label: 'Molesto', emoji: '😠' },
-  { key: 'TRISTE', label: 'Triste', emoji: '😢' },
-  { key: 'ANSIOSO', label: 'Ansioso', emoji: '😰' },
-  { key: 'ESTRESADO', label: 'Estresado', emoji: '🤯' },
-];
-
-const styles = StyleSheet.create({
-  sectionLabel: {
-    fontFamily: Font.manrope600,
-    fontSize: 11,
-    letterSpacing: 2,
+/** Fuera del componente: evita hooks condicionales y props de sombra inválidas entre plataformas. */
+const SHEET_CARD_SHADOW = Platform.select<ViewStyle>({
+  web: { boxShadow: '0 -8px 32px rgba(0,0,0,0.22)' },
+  ios: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
   },
+  android: { elevation: 14 },
+  default: {},
 });
 
-function toDateKeyLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+const EMOCIONES: { key: EstadoDeAnimo | null; emoji: string; label: string }[] = [
+  { key: null, emoji: '—', label: 'Ninguno' },
+  { key: 'CONTENTO', emoji: '😊', label: 'Contento' },
+  { key: 'NEUTRAL', emoji: '😐', label: 'Neutral' },
+  { key: 'PREOCUPADO', emoji: '😟', label: 'Preocupado' },
+  { key: 'MOLESTO', emoji: '😠', label: 'Molesto' },
+  { key: 'TRISTE', emoji: '😢', label: 'Triste' },
+  { key: 'ANSIOSO', emoji: '😰', label: 'Ansioso' },
+  { key: 'ESTRESADO', emoji: '🤯', label: 'Estresado' },
+];
+
+function toDateKeyLocal(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function fechaKeyToDate(key: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key.trim());
   if (!m) return new Date();
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  return new Date(y, mo - 1, d);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
-type Props = {
-  open: boolean;
-  onDismiss: () => void;
-};
+function formatFechaCorta(key: string) {
+  return fechaKeyToDate(key).toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' });
+}
 
-type FieldError = 'amount' | 'category' | 'mood' | null;
+type Props = { open: boolean; onDismiss: () => void };
+type FieldError = 'amount' | 'category' | null;
 
 function useShake() {
   const x = useSharedValue(0);
   const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
   const trigger = useCallback(() => {
     x.value = withSequence(
-      withTiming(-10, { duration: 45, easing: Easing.linear }),
-      withTiming(10, { duration: 45, easing: Easing.linear }),
-      withTiming(-8, { duration: 45, easing: Easing.linear }),
-      withTiming(8, { duration: 45, easing: Easing.linear }),
-      withTiming(0, { duration: 45, easing: Easing.linear }),
+      withTiming(-9, { duration: 42, easing: Easing.linear }),
+      withTiming(9, { duration: 42, easing: Easing.linear }),
+      withTiming(-6, { duration: 42, easing: Easing.linear }),
+      withTiming(6, { duration: 42, easing: Easing.linear }),
+      withTiming(0, { duration: 42, easing: Easing.linear }),
     );
   }, [x]);
   return { style, trigger };
 }
 
-function CategoryCell({
-  emoji,
-  name,
-  selected,
-  onPress,
-}: {
-  emoji: string;
-  name: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const { T } = useTheme();
-  const scale = useSharedValue(1);
-  useEffect(() => {
-    scale.value = withSpring(selected ? 1.05 : 1, { damping: 15, stiffness: 220 });
-  }, [scale, selected]);
-  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  return (
-    <Pressable style={{ width: '33.333%', padding: 4 }} onPress={onPress}>
-      <AnimatedRN.View
-        style={[
-          anim,
-          {
-            borderWidth: 2,
-            borderColor: selected ? T.primary : T.glassBorder,
-            borderRadius: 12,
-            paddingVertical: 10,
-            paddingHorizontal: 6,
-            backgroundColor: selected ? T.primaryBg : T.card,
-            minHeight: 88,
-            justifyContent: 'center',
-          },
-        ]}>
-        <Text style={{ textAlign: 'center', fontSize: 24 }}>{emoji}</Text>
-        <Text
-          numberOfLines={2}
-          style={{
-            fontFamily: Font.manrope500,
-            fontSize: 11,
-            marginTop: 4,
-            textAlign: 'center',
-            lineHeight: 14,
-            color: T.textSecondary,
-          }}>
-          {name}
-        </Text>
-      </AnimatedRN.View>
-    </Pressable>
-  );
-}
-
-function MoodCell({
-  emoji,
-  label,
-  selected,
-  onSelect,
-}: {
-  emoji: string;
-  label: string;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const { T } = useTheme();
-  const scale = useSharedValue(1);
-  useEffect(() => {
-    scale.value = withSpring(selected ? 1.3 : 1, { damping: 14, stiffness: 200 });
-  }, [scale, selected]);
-  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  return (
-    <Pressable style={{ width: '25%', padding: 4 }} onPress={onSelect}>
-      <AnimatedRN.View
-        style={[
-          anim,
-          {
-            borderRadius: 12,
-            paddingVertical: 8,
-            backgroundColor: selected ? T.primaryBg : 'transparent',
-            borderWidth: selected ? 1 : 0,
-            borderColor: selected ? T.primaryBorder : 'transparent',
-            alignItems: 'center',
-          },
-        ]}>
-        <Text style={{ fontSize: 24 }}>{emoji}</Text>
-        <Text
-          numberOfLines={2}
-          style={{
-            marginTop: 4,
-            paddingHorizontal: 2,
-            textAlign: 'center',
-            fontSize: 9,
-            color: T.textSecondary,
-          }}>
-          {label}
-        </Text>
-      </AnimatedRN.View>
-    </Pressable>
-  );
-}
-
+/* ─────────────────────────────────────── */
 export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const { T, isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -206,242 +106,194 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
 
   const [isVisible, setIsVisible] = useState(false);
 
-  const sheetWidth = Math.min(width, 390);
-  const sheetHeight = Math.min(Math.round(height * 0.88), 744);
-  /** Desplazamiento para ocultar el sheet por completo */
+  /** Casi toda la pantalla en móvil para ver el formulario sin scroll en la mayoría de dispositivos. */
+  const sheetFrame = useMemo(() => {
+    const isWeb = Platform.OS === 'web';
+    const edge = isWeb ? 16 : 8;
+    const inner = Math.max(0, width - edge * 2);
+    const sheetWidth = Math.min(400, Math.max(280, inner || width));
+    const peekTop = Math.round(height * 0.045) + insets.top;
+    const bottomGap = isWeb ? 12 : 4;
+    const maxH = Math.max(280, height - peekTop - bottomGap);
+    const sheetHeight = isWeb ? Math.min(maxH, Math.round(height * 0.92)) : maxH;
+    return { sheetWidth, sheetHeight, edge, bottomGap };
+  }, [width, height, insets.top]);
+
+  const { sheetWidth, sheetHeight, edge, bottomGap } = sheetFrame;
   const snap = sheetHeight;
 
   const translateY = useSharedValue(snap);
   const backdropOpacity = useSharedValue(0);
   const dragStartY = useSharedValue(0);
-
   const prevOpen = useRef(false);
 
-  const [fecha, setFecha] = useState(() => new Date().toISOString().split('T')[0]);
+  // form state
+  const [fecha, setFecha] = useState(() => toDateKeyLocal(new Date()));
   const [showIosPicker, setShowIosPicker] = useState(false);
   const [amount, setAmount] = useState('');
   const [amountFocused, setAmountFocused] = useState(false);
   const [moneda, setMoneda] = useState<MonedaCode>(profile.monedaPrincipal);
   const [categoria, setCategoria] = useState<string>(categories[0]?.nombre ?? '');
   const [mood, setMood] = useState<EstadoDeAnimo | null>(null);
-  const mediosNombres = useMemo(() => {
-    const list = (profile.metodosDePago ?? []).map((m) => m.nombre);
-    return list.length > 0 ? list : DEFAULT_METODOS_DE_PAGO.map((m) => m.nombre);
+
+  const medios = useMemo(() => {
+    const list = profile.metodosDePago ?? [];
+    return list.length > 0 ? list : DEFAULT_METODOS_DE_PAGO;
   }, [profile.metodosDePago]);
+
   const bancosLista = useMemo(() => {
     const list = profile.bancosDisponibles;
     return list?.length ? list : DEFAULT_BANCOS_DISPONIBLES;
   }, [profile.bancosDisponibles]);
-  const [medio, setMedio] = useState<string>(() => mediosNombres[0] ?? 'Efectivo');
-  const [banco, setBanco] = useState<string>(() => DEFAULT_BANCOS_DISPONIBLES[0] ?? 'BCP');
-  const [bancoMenu, setBancoMenu] = useState(false);
-  const [nota, setNota] = useState('');
 
+  const [medio, setMedio] = useState(() => medios[0]?.nombre ?? 'Efectivo');
+  const [banco, setBanco] = useState(() => bancosLista[0] ?? 'BCP');
+  const [bancoMenu, setBancoMenu] = useState(false);
+  const [medioMenu, setMedioMenu] = useState(false);
+  const [nota, setNota] = useState('');
   const [fieldError, setFieldError] = useState<FieldError>(null);
   const errorClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const amountShake = useShake();
   const categoryShake = useShake();
-  const moodShake = useShake();
-
   const xpOpacity = useRef(new Animated.Value(0)).current;
   const xpTranslate = useRef(new Animated.Value(0)).current;
   const amountRef = useRef<TextInput>(null);
 
-  useEffect(() => {
-    if (open) {
-      setIsVisible(true);
-    }
-  }, [open]);
+  useEffect(() => { if (open) setIsVisible(true); }, [open]);
 
-  const finishClose = useCallback(() => {
-    setIsVisible(false);
-    onDismiss();
-  }, [onDismiss]);
+  const finishClose = useCallback(() => { setIsVisible(false); onDismiss(); }, [onDismiss]);
 
   const closeSheet = useCallback(() => {
-    translateY.value = withSpring(snap, SPRING_CLOSE, (finished) => {
-      if (finished) runOnJS(finishClose)();
-    });
-    backdropOpacity.value = withTiming(0, { duration: 220 });
+    translateY.value = withSpring(snap, SPRING_CLOSE, (f) => { if (f) runOnJS(finishClose)(); });
+    backdropOpacity.value = withTiming(0, { duration: 200 });
   }, [backdropOpacity, finishClose, snap, translateY]);
 
   const openSheet = useCallback(() => {
     translateY.value = snap;
     backdropOpacity.value = 0;
     translateY.value = withSpring(0, SPRING_OPEN);
-    backdropOpacity.value = withTiming(0.55, { duration: 260 });
+    backdropOpacity.value = withTiming(0.52, { duration: 260 });
   }, [backdropOpacity, snap, translateY]);
 
   useEffect(() => {
-    const becameOpen = open && !prevOpen.current;
+    const became = open && !prevOpen.current;
     prevOpen.current = open;
-    if (!becameOpen) return;
+    if (!became) return;
     setMoneda(profile.monedaPrincipal);
     setCategoria(categories[0]?.nombre ?? '');
     setMood(null);
-    setMedio(mediosNombres[0] ?? 'Efectivo');
-    setBanco(bancosLista[0] ?? DEFAULT_BANCOS_DISPONIBLES[0] ?? 'BCP');
+    setMedio(medios[0]?.nombre ?? 'Efectivo');
+    setBanco(bancosLista[0] ?? 'BCP');
     setNota('');
     setAmount('');
-    setFecha(new Date().toISOString().split('T')[0]);
+    setFecha(toDateKeyLocal(new Date()));
     setFieldError(null);
     requestAnimationFrame(() => openSheet());
-  }, [open, openSheet, profile.monedaPrincipal, categories, mediosNombres, bancosLista]);
+  }, [open, openSheet, profile.monedaPrincipal, categories, medios, bancosLista]);
 
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
-
-  const backdropStyle = useAnimatedStyle(() => ({
-    opacity: backdropOpacity.value,
-  }));
+  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
 
   const pan = Gesture.Pan()
     .activeOffsetY(10)
     .failOffsetX([-20, 20])
-    .onStart(() => {
-      dragStartY.value = translateY.value;
-    })
-    .onUpdate((e) => {
-      const next = dragStartY.value + e.translationY;
-      translateY.value = next < 0 ? 0 : next;
-    })
+    .onStart(() => { dragStartY.value = translateY.value; })
+    .onUpdate((e) => { translateY.value = Math.max(0, dragStartY.value + e.translationY); })
     .onEnd((e) => {
-      const closeThreshold = snap * 0.22;
-      if (translateY.value > closeThreshold || e.velocityY > 900) {
-        translateY.value = withSpring(snap, SPRING_CLOSE, (finished) => {
-          if (finished) runOnJS(finishClose)();
-        });
-        backdropOpacity.value = withTiming(0, { duration: 220 });
+      if (translateY.value > snap * 0.22 || e.velocityY > 900) {
+        translateY.value = withSpring(snap, SPRING_CLOSE, (f) => { if (f) runOnJS(finishClose)(); });
+        backdropOpacity.value = withTiming(0, { duration: 200 });
       } else {
         translateY.value = withSpring(0, SPRING_OPEN);
       }
     });
-
-  const onBackdropPress = () => {
-    closeSheet();
-  };
 
   const openDatePicker = () => {
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: fechaKeyToDate(fecha),
         mode: 'date',
-        onChange: (_ev, d) => {
-          if (d) setFecha(toDateKeyLocal(d));
-        },
+        onChange: (_e, d) => { if (d) setFecha(toDateKeyLocal(d)); },
       });
     } else {
       setShowIosPicker((s) => !s);
     }
   };
 
-  const flashError = (field: FieldError) => {
+  const flashError = (f: FieldError) => {
     if (errorClearRef.current) clearTimeout(errorClearRef.current);
-    setFieldError(field);
-    errorClearRef.current = setTimeout(() => setFieldError(null), 2200);
+    setFieldError(f);
+    errorClearRef.current = setTimeout(() => setFieldError(null), 2000);
   };
 
-  const playXpBurst = () =>
-    new Promise<void>((resolve) => {
-      xpOpacity.setValue(0);
-      xpTranslate.setValue(0);
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(xpOpacity, { toValue: 1, duration: 140, useNativeDriver: true }),
-          Animated.spring(xpTranslate, { toValue: -56, useNativeDriver: true, friction: 8, tension: 90 }),
-        ]),
-        Animated.timing(xpOpacity, { toValue: 0, duration: 380, delay: 100, useNativeDriver: true }),
-      ]).start(() => resolve());
-    });
+  const playXp = () => new Promise<void>((res) => {
+    xpOpacity.setValue(0);
+    xpTranslate.setValue(0);
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(xpOpacity, { toValue: 1, duration: 140, useNativeDriver: true }),
+        Animated.spring(xpTranslate, { toValue: -52, useNativeDriver: true, friction: 8, tension: 90 }),
+      ]),
+      Animated.timing(xpOpacity, { toValue: 0, duration: 340, delay: 80, useNativeDriver: true }),
+    ]).start(() => res());
+  });
 
   const onSave = async () => {
     const normalized = amount.replace(',', '.').trim();
     const value = Number(normalized);
     if (!normalized || Number.isNaN(value) || value <= 0) {
-      if (Platform.OS !== 'web') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
+      if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       amountShake.trigger();
       flashError('amount');
       return;
     }
     if (!categoria) {
-      if (Platform.OS !== 'web') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
+      if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       categoryShake.trigger();
       flashError('category');
       return;
     }
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const fd = fechaKeyToDate(fecha);
     const fechaIso = new Date(fd.getFullYear(), fd.getMonth(), fd.getDate(), 12, 0, 0, 0).toISOString();
     try {
       await addExpenseToSupabase({
-        categoria,
-        importe: value,
-        estadoDeAnimo: mood,
-        descripcion: nota.trim(),
-        fecha: fechaIso,
-        medioDePago: medio,
-        banco,
-        moneda,
+        categoria, importe: value, estadoDeAnimo: mood,
+        descripcion: nota.trim(), fecha: fechaIso,
+        medioDePago: medio, banco, moneda,
       });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'No se pudo guardar el gasto';
-      Alert.alert('Error', msg);
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo guardar');
       return;
     }
-
-    await playXpBurst();
+    await playXp();
     closeSheet();
   };
 
-  const onVoicePress = () => {
-    Alert.alert('Próximamente', 'Registro por voz estará disponible muy pronto 🎙️');
-  };
-
   const symbol = moneda === 'PEN' ? 'S/' : '$';
+  const amountHasError = fieldError === 'amount';
 
-  if (!open && !isVisible) {
-    return null;
-  }
+  if (!open && !isVisible) return null;
 
   return (
-    <Modal
-      visible={open || isVisible}
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={closeSheet}>
+    <Modal visible={open || isVisible} transparent animationType="none" statusBarTranslucent onRequestClose={closeSheet}>
       <View
-        style={{ flex: 1, justifyContent: 'flex-end' }}
+        style={{ flex: 1, justifyContent: 'flex-end', paddingHorizontal: edge, paddingBottom: bottomGap }}
         pointerEvents={open ? 'auto' : 'none'}>
-        <Pressable
-          style={{ flex: 1 }}
-          pointerEvents={open ? 'auto' : 'none'}
-          onPress={onBackdropPress}>
+
+        {/* Backdrop: más suave para que el inicio siga “presente” */}
+        <Pressable style={StyleSheet.absoluteFillObject} pointerEvents={open ? 'auto' : 'none'} onPress={closeSheet}>
           <AnimatedRN.View
-            pointerEvents={open ? 'auto' : 'none'}
+            pointerEvents="none"
             style={[
-              {
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                top: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(57,38,76,0.4)',
-              },
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: isDark ? 'rgba(6,7,18,0.55)' : 'rgba(26,16,53,0.45)' },
               backdropStyle,
             ]}
           />
         </Pressable>
 
+        {/* Tarjeta flotante (no full-bleed al ancho de la pantalla) */}
         <AnimatedRN.View
           pointerEvents={open ? 'auto' : 'none'}
           style={[
@@ -451,385 +303,547 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               alignSelf: 'center',
               height: sheetHeight,
               backgroundColor: T.surface,
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: T.glassBorder,
               overflow: 'hidden',
-              flexDirection: 'column',
+              ...SHEET_CARD_SHADOW,
             },
           ]}>
+
+          {/* ── 1. Gradient top strip ── */}
+          <GradientView colors={T.primaryGrad} style={{ height: 3 }} />
+
+          {/* ── 2. Drag handle + header row ── */}
           <GestureDetector gesture={pan}>
-            <View className="items-center justify-start pt-3" style={{ minHeight: 56 }}>
-              <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: T.primaryBorder }} />
-              <Text style={{ color: T.textMuted, fontSize: 10, marginTop: 6 }}>Deslizá hacia abajo para cerrar</Text>
+            <View style={{ paddingTop: 4, paddingBottom: 6, paddingHorizontal: 16 }}>
+              <View style={{ alignItems: 'center', marginBottom: 4 }}>
+                <View style={{ width: 32, height: 3, borderRadius: 2, backgroundColor: T.glassBorder }} />
+              </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 11,
+                    backgroundColor: T.primaryBg,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 8,
+                  }}>
+                  <Text style={{ fontSize: 17 }}>💸</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: Font.jakarta700, fontSize: 17, color: T.textPrimary }}>
+                    Nuevo gasto
+                  </Text>
+                  <Text style={{ fontFamily: Font.manrope400, fontSize: 11, color: T.textMuted }} numberOfLines={1}>
+                    ¿Cuánto gastaste?
+                  </Text>
+                </View>
+                {/* Date pill — visible aquí como contexto */}
+                {Platform.OS !== 'web' && (
+                  <Pressable
+                    onPress={openDatePicker}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 20,
+                      backgroundColor: T.card,
+                      borderWidth: 1,
+                      borderColor: T.glassBorder,
+                    }}>
+                    <Text style={{ fontSize: 12 }}>📅</Text>
+                    <Text style={{ fontFamily: Font.manrope500, fontSize: 11, color: T.textSecondary }}>
+                      {formatFechaCorta(fecha)}
+                    </Text>
+                  </Pressable>
+                )}
+                {Platform.OS === 'web' && (
+                  <View
+                    style={{
+                      borderRadius: 20,
+                      borderWidth: 1,
+                      borderColor: T.glassBorder,
+                      backgroundColor: T.card,
+                      height: 34,
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      paddingHorizontal: 6,
+                    }}>
+                    {createElement('input', {
+                      type: 'date',
+                      value: fecha,
+                      onChange: (e: any) => setFecha(e.target.value),
+                      style: {
+                        background: 'transparent', border: 'none', outline: 'none',
+                        color: T.textSecondary, fontSize: 11, cursor: 'pointer',
+                        colorScheme: isDark ? 'dark' : 'light',
+                      } as any,
+                    })}
+                  </View>
+                )}
+              </View>
             </View>
           </GestureDetector>
 
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingHorizontal: 16,
-              paddingBottom: 12,
-            }}
-            style={{ flex: 1 }}>
-            {Platform.OS === 'web' ? (
-              <View style={{ gap: 6 }}>
-                <Text style={[styles.sectionLabel, { color: T.textMuted }]}>FECHA</Text>
-                <View
-                  style={{
-                    backgroundColor: T.surface,
-                    borderColor: T.glassBorder,
-                    borderWidth: 1,
-                    borderRadius: 12,
-                    height: 52,
-                    overflow: 'hidden',
-                    justifyContent: 'center',
-                  }}>
-                  <input
-                    type="date"
-                    value={fecha}
-                    onChange={(e: any) => setFecha(e.target.value)}
-                    style={
-                      {
-                        width: '100%',
-                        height: '100%',
-                        background: 'transparent',
-                        border: 'none',
-                        outline: 'none',
-                        color: T.textPrimary,
-                        fontSize: 15,
-                        paddingLeft: 16,
-                        paddingRight: 16,
-                        cursor: 'pointer',
-                        colorScheme: isDark ? 'dark' : 'light',
-                      } as any
-                    }
-                  />
-                </View>
-              </View>
-            ) : (
-              <View style={{ gap: 6 }}>
-                <Text style={[styles.sectionLabel, { color: T.textMuted }]}>FECHA</Text>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  style={{
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    paddingHorizontal: 16,
-                    paddingVertical: 14,
-                    backgroundColor: T.surface,
-                    borderColor: T.glassBorder,
-                    justifyContent: 'center',
-                  }}
-                  onPress={openDatePicker}>
-                  <Text style={{ color: T.textPrimary, fontSize: 15 }}>
-                    {fecha
-                      ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-PE', {
-                          weekday: 'long',
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })
-                      : 'Seleccionar fecha'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            {Platform.OS === 'ios' && showIosPicker ? (
-              <DateTimePicker
-                value={fechaKeyToDate(fecha)}
-                mode="date"
-                display="spinner"
-                themeVariant={isDark ? 'dark' : 'light'}
-                onChange={(_, d) => {
-                  if (d) setFecha(toDateKeyLocal(d));
+          {/* ── 3. MONTO (compacto) ── */}
+          <AnimatedRN.View style={[amountShake.style, { paddingHorizontal: 16, marginBottom: 0 }]}>
+            <Pressable
+              onPress={() => amountRef.current?.focus()}
+              style={{
+                backgroundColor: T.card,
+                borderRadius: 16,
+                borderWidth: 2,
+                borderColor: amountHasError ? T.error : amountFocused ? T.primary : T.glassBorder,
+                paddingVertical: 10,
+                paddingLeft: 14,
+                paddingRight: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}>
+              <Text
+                style={{
+                  fontFamily: Font.jakarta700,
+                  fontSize: 26,
+                  color: amountHasError ? T.error : amountFocused ? T.primaryLight : T.textMuted,
+                  lineHeight: 32,
+                }}>
+                {symbol}
+              </Text>
+
+              <TextInput
+                ref={amountRef}
+                value={amount}
+                onChangeText={setAmount}
+                onFocus={() => setAmountFocused(true)}
+                onBlur={() => setAmountFocused(false)}
+                placeholder="0.00"
+                placeholderTextColor={T.textMuted}
+                keyboardType="decimal-pad"
+                style={{
+                  flex: 1,
+                  fontFamily: Font.jakarta700,
+                  fontSize: 34,
+                  color: amountHasError ? T.error : T.textPrimary,
+                  minWidth: 88,
+                  textAlign: 'center',
+                  padding: 0,
+                  margin: 0,
+                  backgroundColor: 'transparent',
+                  lineHeight: 40,
                 }}
               />
-            ) : null}
 
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>MONTO</Text>
-            <AnimatedRN.View style={amountShake.style}>
-              <Pressable
-                onPress={() => amountRef.current?.focus()}
-                className="flex-row items-center justify-center rounded-2xl border-2 bg-bg px-3 py-3"
+              {/* PEN | USD en una sola fila */}
+              <View
                 style={{
-                  borderColor: fieldError === 'amount' ? T.error : amountFocused ? T.primary : T.glassBorder,
+                  flexDirection: 'row',
+                  borderRadius: 10,
+                  backgroundColor: T.surface,
+                  borderWidth: 1,
+                  borderColor: T.glassBorder,
+                  padding: 2,
                 }}>
-                <Text style={{ marginRight: 4, fontSize: 28, fontWeight: '600', color: T.textPrimary }}>{symbol}</Text>
-                <TextInput
-                  ref={amountRef}
-                  value={amount}
-                  onChangeText={setAmount}
-                  onFocus={() => setAmountFocused(true)}
-                  onBlur={() => setAmountFocused(false)}
-                  placeholder="0.00"
-                  placeholderTextColor={T.textMuted}
-                  keyboardType="numeric"
-                  className="min-w-[100px] flex-1 text-center text-[28px] font-semibold"
-                  style={{ fontSize: 28, paddingVertical: 4, color: T.textPrimary, fontWeight: '600' }}
-                />
-              </Pressable>
-            </AnimatedRN.View>
-
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>MONEDA</Text>
-            <View
-              style={{
-                flexDirection: 'row',
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: T.glassBorder,
-                padding: 4,
-                backgroundColor: T.card,
-              }}>
-              {(['PEN', 'USD'] as const).map((m) => {
-                const active = moneda === m;
-                return (
-                  <Pressable key={m} onPress={() => setMoneda(m)} style={{ flex: 1 }}>
-                    {active ? (
-                      <GradientView colors={T.primaryGrad} style={{ borderRadius: 999, paddingVertical: 8, alignItems: 'center' }}>
-                        <Text style={{ fontFamily: Font.jakarta600, fontSize: 14, color: onPrimaryGradient.text }}>{m}</Text>
-                      </GradientView>
-                    ) : (
-                      <View style={{ borderRadius: 999, paddingVertical: 8, alignItems: 'center' }}>
-                        <Text style={{ fontFamily: Font.manrope500, fontSize: 14, color: T.textMuted }}>{m}</Text>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>
-              CATEGORÍA
-            </Text>
-            <AnimatedRN.View
-              style={[
-                categoryShake.style,
-                fieldError === 'category'
-                  ? { borderWidth: 2, borderColor: T.error, borderRadius: 12, padding: 4 }
-                  : undefined,
-              ]}>
-              <View className="flex-row flex-wrap">
-                {categories.map((cat) => (
-                  <CategoryCell
-                    key={cat.id}
-                    emoji={cat.emoji}
-                    name={cat.nombre}
-                    selected={categoria === cat.nombre}
-                    onPress={() => setCategoria(cat.nombre)}
-                  />
-                ))}
+                {(['PEN', 'USD'] as const).map((m) => {
+                  const active = moneda === m;
+                  return (
+                    <Pressable key={m} onPress={() => setMoneda(m)} style={{ borderRadius: 8 }}>
+                      {active ? (
+                        <GradientView
+                          colors={T.primaryGrad}
+                          style={{ borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
+                          <Text style={{ fontFamily: Font.jakarta700, fontSize: 12, color: onPrimaryGradient.text }}>{m}</Text>
+                        </GradientView>
+                      ) : (
+                        <View style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
+                          <Text style={{ fontFamily: Font.manrope500, fontSize: 12, color: T.textMuted }}>{m}</Text>
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })}
               </View>
-            </AnimatedRN.View>
+            </Pressable>
+          </AnimatedRN.View>
 
-            <View style={{ height: SECTION }} />
+          {Platform.OS === 'ios' && showIosPicker && (
+            <DateTimePicker
+              value={fechaKeyToDate(fecha)}
+              mode="date"
+              display={
+                typeof Platform.Version === 'number'
+                  ? Platform.Version >= 14
+                    ? 'compact'
+                    : 'spinner'
+                  : parseFloat(String(Platform.Version)) >= 14
+                    ? 'compact'
+                    : 'spinner'
+              }
+              themeVariant={isDark ? 'dark' : 'light'}
+              onChange={(_, d) => { if (d) setFecha(toDateKeyLocal(d)); }}
+            />
+          )}
 
-            <Text style={[styles.sectionLabel, { color: T.textMuted, marginBottom: 8 }]}>¿CÓMO TE SIENTES?</Text>
-            <AnimatedRN.View style={moodShake.style}>
-              <View className="flex-row flex-wrap">
-                {EMOCIONES.map((item) => (
-                  <MoodCell
-                    key={String(item.key)}
-                    emoji={item.emoji}
-                    label={item.label}
-                    selected={mood === item.key}
-                    onSelect={() => setMood(item.key)}
-                  />
-                ))}
-              </View>
-            </AnimatedRN.View>
+          {/* ── 4. Scrollable form fields ── */}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 6, paddingBottom: 4, flexGrow: 1 }}
+            style={{ flex: 1 }}>
 
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>
-              MEDIO DE PAGO
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {(profile.metodosDePago?.length ? profile.metodosDePago : DEFAULT_METODOS_DE_PAGO).map((m) => {
-                const nombre = m.nombre;
-                const active = medio === nombre;
-                return (
-                  <Pressable key={m.id} onPress={() => setMedio(nombre)}>
-                    {active ? (
-                      <GradientView colors={T.primaryGrad} style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}>
-                        <Text style={{ fontFamily: Font.manrope600, fontSize: 14, color: onPrimaryGradient.text }}>{nombre}</Text>
-                      </GradientView>
-                    ) : (
-                      <View
+            {/* ─── SECCIÓN: ¿En qué? ─── */}
+            <SectionLabel
+              label="¿EN QUÉ GASTASTE?"
+              color={fieldError === 'category' ? T.error : T.textMuted}
+            />
+            <AnimatedRN.View style={categoryShake.style}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  alignContent: 'flex-start',
+                  gap: 6,
+                }}>
+                {categories.map((cat) => {
+                  const active = categoria === cat.nombre;
+                  return (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() => setCategoria(cat.nombre)}
+                      style={{
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        paddingHorizontal: 10,
+                        paddingVertical: 7,
+                        borderRadius: 14,
+                        borderWidth: active ? 2 : 1,
+                        borderColor: active ? T.primary : T.glassBorder,
+                        backgroundColor: active ? T.primaryBg : T.card,
+                        minWidth: 68,
+                        maxWidth: 108,
+                        alignSelf: 'flex-start',
+                      }}>
+                      <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
+                      <Text
+                        numberOfLines={2}
                         style={{
-                          borderRadius: 999,
-                          paddingHorizontal: 12,
-                          paddingVertical: 8,
-                          backgroundColor: T.card,
-                          borderWidth: 1,
-                          borderColor: T.glassBorder,
+                          fontFamily: Font.manrope600,
+                          fontSize: 10,
+                          marginTop: 3,
+                          color: active ? T.primary : T.textMuted,
+                          textAlign: 'center',
+                          lineHeight: 13,
+                          maxWidth: 96,
                         }}>
-                        <Text style={{ fontFamily: Font.manrope500, fontSize: 14, color: T.textMuted }}>{nombre}</Text>
-                      </View>
-                    )}
+                        {cat.nombre}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </AnimatedRN.View>
+
+            {/* ─── SECCIÓN: ¿Cómo pagaste? ─── */}
+            <Divider T={T} />
+            <SectionLabel label="¿CÓMO PAGASTE?" color={T.textMuted} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: Font.manrope500, fontSize: 10, color: T.textMuted, marginBottom: 4 }}>
+                  Medio
+                </Text>
+                <Pressable
+                  onPress={() => setMedioMenu(true)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: T.glassBorder,
+                    backgroundColor: T.card,
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                  }}>
+                  <Text style={{ fontFamily: Font.manrope600, fontSize: 14, color: T.textPrimary, flex: 1 }} numberOfLines={1}>
+                    {medio}
+                  </Text>
+                  <Text style={{ color: T.textMuted, fontSize: 10 }}>▾</Text>
+                </Pressable>
+              </View>
+
+              {/* Banco */}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: Font.manrope500, fontSize: 10, color: T.textMuted, marginBottom: 4 }}>
+                  Banco / Cuenta
+                </Text>
+                {Platform.OS === 'web'
+                  ? createElement('select', {
+                      value: banco,
+                      onChange: (e: { target: { value: string } }) => setBanco(e.target.value),
+                      style: {
+                        width: '100%', height: 40,
+                        background: T.card, border: `1px solid ${T.glassBorder}`,
+                        borderRadius: 12, color: T.textPrimary, fontSize: 14,
+                        paddingLeft: 12, cursor: 'pointer',
+                        colorScheme: isDark ? 'dark' : 'light', outline: 'none',
+                      } as any,
+                    },
+                    bancosLista.map((b) => createElement('option', { key: b, value: b }, b)),
+                  )
+                  : (
+                    <Pressable
+                      onPress={() => setBancoMenu(true)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: T.glassBorder,
+                        backgroundColor: T.card,
+                        paddingHorizontal: 12,
+                        paddingVertical: 9,
+                      }}>
+                      <Text style={{ fontFamily: Font.manrope600, fontSize: 14, color: T.textPrimary, flex: 1 }} numberOfLines={1}>
+                        {banco}
+                      </Text>
+                      <Text style={{ color: T.textMuted, fontSize: 10 }}>▾</Text>
+                    </Pressable>
+                  )}
+              </View>
+            </View>
+
+            {/* ─── SECCIÓN: ¿Cómo te sentís? ─── */}
+            <Divider T={T} />
+            <SectionLabel label="¿CÓMO TE SENTÍS?" color={T.textMuted} />
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 5, paddingBottom: 0 }}>
+              {EMOCIONES.map((item) => {
+                const active = mood === item.key;
+                return (
+                  <Pressable
+                    key={String(item.key)}
+                    onPress={() => setMood(item.key)}
+                    style={{
+                      alignItems: 'center',
+                      paddingHorizontal: 7,
+                      paddingVertical: 5,
+                      borderRadius: 12,
+                      borderWidth: active ? 2 : 1,
+                      borderColor: active ? T.primary : T.glassBorder,
+                      backgroundColor: active ? T.primaryBg : T.card,
+                      minWidth: 48,
+                    }}>
+                    <Text style={{ fontSize: 18 }}>{item.emoji}</Text>
+                    <Text
+                      style={{
+                        fontFamily: Font.manrope500,
+                        fontSize: 8,
+                        marginTop: 2,
+                        color: active ? T.primary : T.textMuted,
+                      }}
+                      numberOfLines={1}>
+                      {item.label}
+                    </Text>
                   </Pressable>
                 );
               })}
-            </View>
+            </ScrollView>
 
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>BANCO</Text>
-            {Platform.OS === 'web'
-              ? createElement(
-                  'select',
-                  {
-                    value: banco,
-                    onChange: (e: { target: { value: string } }) => setBanco(e.target.value),
-                    style: {
-                      width: '100%',
-                      height: 52,
-                      background: '#0F1029',
-                      border: '1px solid rgba(124,58,237,0.2)',
-                      borderRadius: 12,
-                      color: 'white',
-                      fontSize: 15,
-                      paddingLeft: 16,
-                      paddingRight: 16,
-                      cursor: 'pointer',
-                      colorScheme: 'dark',
-                      outline: 'none',
-                    } as any,
-                  },
-                  bancosLista.map((b) => createElement('option', { key: b, value: b }, b)),
-                )
-              : (
-                  <Pressable
-                    onPress={() => setBancoMenu(true)}
-                    className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
-                    <Text style={{ fontSize: 16, color: T.textPrimary }}>{banco}</Text>
-                    <Text style={{ color: T.textMuted }}>▾</Text>
-                  </Pressable>
-                )}
-
-            <View style={{ height: SECTION }} />
-
-            <Text style={{ fontFamily: Font.manrope600,
-                color: T.textMuted,
-                fontSize: 11,
-                letterSpacing: 2,
-                marginBottom: 8 }}>NOTA</Text>
+            {/* ─── SECCIÓN: Nota ─── */}
+            <Divider T={T} />
+            <SectionLabel label="NOTA OPCIONAL" color={T.textMuted} />
             <TextInput
               value={nota}
               onChangeText={setNota}
               placeholder="Añade un detalle..."
               placeholderTextColor={T.textMuted}
-              multiline
-              className="min-h-[88px] rounded-xl border border-border bg-bg px-4 py-3 text-base"
-              style={{ color: T.textPrimary }}
-              textAlignVertical="top"
+              style={{
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: T.glassBorder,
+                backgroundColor: T.card,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                fontSize: 14,
+                color: T.textPrimary,
+                fontFamily: Font.manrope400,
+                minHeight: 38,
+              }}
             />
 
-            <View style={{ height: SECTION }} />
-
-            <Pressable
-              onPress={onVoicePress}
-              className="items-center rounded-xl border border-border bg-bg py-3 opacity-40 active:opacity-50">
-              <Text className="text-xl">🎙️</Text>
-              <Text style={{ marginTop: 4, textAlign: 'center', fontSize: 12, color: T.textSecondary }}>
-                Registro por voz — Próximamente
-              </Text>
-            </Pressable>
-
-            <View style={{ height: 16 }} />
           </ScrollView>
 
+          {/* ── 5. Footer con botón guardar ── */}
           <View
             style={{
               borderTopWidth: 1,
               borderTopColor: T.glassBorder,
               backgroundColor: T.surface,
               paddingHorizontal: 16,
-              paddingTop: 12,
-              paddingBottom: Math.max(insets.bottom, 12),
+              paddingTop: 6,
+              paddingBottom: Math.max(insets.bottom, 10),
             }}>
-            <View className="relative mb-2" style={{ minHeight: 28 }}>
+            <View style={{ minHeight: 18, position: 'relative', marginBottom: 4 }}>
               <Animated.View
                 pointerEvents="none"
                 style={{
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  bottom: 8,
-                  alignItems: 'center',
-                  opacity: xpOpacity,
+                  position: 'absolute', left: 0, right: 0, bottom: 4,
+                  alignItems: 'center', opacity: xpOpacity,
                   transform: [{ translateY: xpTranslate }],
                 }}>
-                <Text className="text-lg font-bold text-accent">+10 XP ✨</Text>
+                <Text style={{ fontFamily: Font.jakarta700, fontSize: 15, color: T.tertiary }}>+10 XP ✨</Text>
               </Animated.View>
             </View>
+
             <Pressable
               onPress={onSave}
               style={{
-                borderRadius: 16,
+                borderRadius: 18,
                 overflow: 'hidden',
                 shadowColor: T.shadowPrimary,
-                shadowOffset: { width: 0, height: 12 },
+                shadowOffset: { width: 0, height: 10 },
                 shadowOpacity: 1,
-                shadowRadius: 32,
-                elevation: 16,
+                shadowRadius: 28,
+                elevation: 14,
               }}>
-              <GradientView colors={T.primaryGrad} style={{ height: 56, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontFamily: Font.jakarta700, fontSize: 17, color: onPrimaryGradient.text }}>GUARDAR GASTO</Text>
+              <GradientView
+                colors={T.primaryGrad}
+                style={{ height: 48, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontFamily: Font.jakarta700, fontSize: 15, color: onPrimaryGradient.text, letterSpacing: 0.5 }}>
+                  GUARDAR GASTO
+                </Text>
               </GradientView>
             </Pressable>
           </View>
 
-          <Modal visible={bancoMenu} transparent animationType="fade" onRequestClose={() => setBancoMenu(false)}>
-            <Pressable className="flex-1 justify-end " onPress={() => setBancoMenu(false)}>
-              <Pressable
-                className="mx-4 mb-8 rounded-2xl border border-border bg-bg p-2"
-                onPress={(e) => e.stopPropagation()}>
-                <FlatList
-                  data={[...bancosLista]}
-                  keyExtractor={(item) => item}
-                  renderItem={({ item }) => (
-                    <Pressable
-                      onPress={() => {
-                        setBanco(item);
-                        setBancoMenu(false);
-                      }}
-                      className="border-b border-border py-3 pl-3 active:bg-card">
-                      <Text style={{ fontSize: 16, color: T.textPrimary }}>{item}</Text>
-                    </Pressable>
-                  )}
-                />
-              </Pressable>
-            </Pressable>
-          </Modal>
+          {/* ── Pickers ── */}
+          <BottomPickerModal
+            visible={medioMenu}
+            items={medios.map((m) => m.nombre)}
+            selected={medio}
+            onSelect={(v) => { setMedio(v); setMedioMenu(false); }}
+            onClose={() => setMedioMenu(false)}
+            insets={insets.bottom}
+            T={T}
+          />
+          <BottomPickerModal
+            visible={bancoMenu}
+            items={bancosLista}
+            selected={banco}
+            onSelect={(v) => { setBanco(v); setBancoMenu(false); }}
+            onClose={() => setBancoMenu(false)}
+            insets={insets.bottom}
+            T={T}
+          />
         </AnimatedRN.View>
       </View>
+    </Modal>
+  );
+}
+
+/* ─── Shared sub-components ─────────────── */
+
+function SectionLabel({ label, color }: { label: string; color: string }) {
+  return (
+    <Text
+      style={{
+        fontFamily: Font.manrope600,
+        fontSize: 10,
+        letterSpacing: 2,
+        color,
+        marginBottom: 6,
+      }}>
+      {label}
+    </Text>
+  );
+}
+
+function Divider({ T }: { T: ReturnType<typeof useTheme>['T'] }) {
+  return (
+    <View
+      style={{
+        height: 1,
+        backgroundColor: T.glassBorder,
+        marginVertical: 6,
+        marginHorizontal: -2,
+      }}
+    />
+  );
+}
+
+function BottomPickerModal({
+  visible, items, selected, onSelect, onClose, insets, T,
+}: {
+  visible: boolean;
+  items: string[];
+  selected: string;
+  onSelect: (v: string) => void;
+  onClose: () => void;
+  insets: number;
+  T: ReturnType<typeof useTheme>['T'];
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable
+        style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(8,9,24,0.6)' }}
+        onPress={onClose}>
+        <Pressable
+          style={{
+            marginHorizontal: 10,
+            marginBottom: Math.max(insets + 10, 22),
+            borderRadius: 22,
+            borderWidth: 1,
+            borderColor: T.glassBorder,
+            backgroundColor: T.surface,
+            overflow: 'hidden',
+          }}
+          onPress={(e) => e.stopPropagation()}>
+          <GradientView colors={T.primaryGrad} style={{ height: 3 }} />
+          <FlatList
+            data={items}
+            keyExtractor={(item) => item}
+            renderItem={({ item, index }) => (
+              <Pressable
+                onPress={() => onSelect(item)}
+                style={{
+                  paddingVertical: 15,
+                  paddingHorizontal: 18,
+                  borderBottomWidth: index < items.length - 1 ? 1 : 0,
+                  borderBottomColor: T.glassBorder,
+                  backgroundColor: selected === item ? T.primaryBg : 'transparent',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}>
+                <Text
+                  style={{
+                    fontFamily: Font.manrope500,
+                    fontSize: 15,
+                    color: selected === item ? T.primary : T.textPrimary,
+                  }}>
+                  {item}
+                </Text>
+                {selected === item && (
+                  <Text style={{ fontSize: 14, color: T.primary }}>✓</Text>
+                )}
+              </Pressable>
+            )}
+          />
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }

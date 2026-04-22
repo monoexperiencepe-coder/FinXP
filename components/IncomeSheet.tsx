@@ -1,10 +1,9 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { createElement, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
-  FlatList,
   Modal,
   Platform,
   Pressable,
@@ -23,7 +22,6 @@ import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { IncomeFrecuencia, IncomeTipo, MonedaCode } from '@/types';
-import { DEFAULT_BANCOS_DISPONIBLES } from '@/types';
 
 const DEFAULT_FUENTE = 'Otro';
 const DEFAULT_TIPO: IncomeTipo = 'Variable';
@@ -107,22 +105,14 @@ export function IncomeSheet({ open, onDismiss }: Props) {
   const insets = useSafeAreaInsets();
   const addIncomeToSupabase = useFinanceStore((s) => s.addIncomeToSupabase);
   const monedaPrincipal = useFinanceStore((s) => s.profile.monedaPrincipal);
-  const profile = useFinanceStore((s) => s.profile);
   const incomeCategories = useFinanceStore((s) => s.incomeCategories);
   const loadIncomeCategories = useFinanceStore((s) => s.loadIncomeCategories);
-
-  const bancosLista = useMemo(() => {
-    const list = profile.bancosDisponibles;
-    return list?.length ? list : DEFAULT_BANCOS_DISPONIBLES;
-  }, [profile.bancosDisponibles]);
 
   const [isVisible, setIsVisible] = useState(false);
   const [fecha, setFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [showIosPicker, setShowIosPicker] = useState(false);
   const [amount, setAmount] = useState('');
   const [moneda, setMoneda] = useState<MonedaCode>('PEN');
-  const [banco, setBanco] = useState<string>('');
-  const [bancoMenu, setBancoMenu] = useState(false);
   const [categoria, setCategoria] = useState<string>('');
   const [descripcion, setDescripcion] = useState('');
 
@@ -135,7 +125,6 @@ export function IncomeSheet({ open, onDismiss }: Props) {
       setMoneda(monedaPrincipal);
       setFecha(new Date().toISOString().split('T')[0]);
       setAmount('');
-      setBanco(bancosLista[0] ?? '');
       setCategoria('');
       setDescripcion('');
       Animated.parallel([
@@ -155,7 +144,7 @@ export function IncomeSheet({ open, onDismiss }: Props) {
         }
       });
     }
-  }, [backdropOpacity, bancosLista, isVisible, monedaPrincipal, onDismiss, open, translateY]);
+  }, [backdropOpacity, isVisible, monedaPrincipal, onDismiss, open, translateY]);
 
   useEffect(() => {
     if (incomeCategories.length === 0) {
@@ -218,10 +207,6 @@ export function IncomeSheet({ open, onDismiss }: Props) {
       Alert.alert('Categoría', 'Selecciona una categoría');
       return;
     }
-    if (!banco?.trim()) {
-      Alert.alert('Banco', 'Selecciona un banco');
-      return;
-    }
     const fd = fechaKeyToDate(fecha);
     const fechaIso = new Date(fd.getFullYear(), fd.getMonth(), fd.getDate(), 12, 0, 0, 0).toISOString();
     try {
@@ -233,7 +218,7 @@ export function IncomeSheet({ open, onDismiss }: Props) {
         tipo: DEFAULT_TIPO,
         objetivo: DEFAULT_OBJETIVO,
         frecuencia: DEFAULT_FRECUENCIA,
-        banco,
+        banco: '',
         categoria,
         descripcion: descripcion.trim(),
       });
@@ -427,42 +412,6 @@ export function IncomeSheet({ open, onDismiss }: Props) {
             </View>
 
             <View style={{ height: 24 }} />
-            <Text style={labelStyle}>BANCO</Text>
-            {Platform.OS === 'web' ? (
-              <View style={{ marginBottom: 16 }}>
-                {createElement(
-                  'select',
-                  {
-                    value: banco,
-                    onChange: (e: { target: { value: string } }) => setBanco(e.target.value),
-                    style: {
-                      width: '100%',
-                      background: '#1A1F3E',
-                      color: 'white',
-                      border: '1px solid #2A3050',
-                      borderRadius: 12,
-                      padding: '12px',
-                      fontSize: 15,
-                      colorScheme: 'dark',
-                    } as object,
-                  },
-                  createElement('option', { value: '' }, 'Selecciona un banco'),
-                  ...(profile.bancosDisponibles?.length
-                    ? profile.bancosDisponibles
-                    : DEFAULT_BANCOS_DISPONIBLES
-                  ).map((b) => createElement('option', { key: b, value: b }, b)),
-                )}
-              </View>
-            ) : (
-              <Pressable
-                onPress={() => setBancoMenu(true)}
-                className="flex-row items-center justify-between rounded-xl border border-border bg-bg px-4 py-3">
-                <Text className="text-base text-text">{banco || 'Selecciona un banco'}</Text>
-                <Text className="text-muted">▾</Text>
-              </Pressable>
-            )}
-
-            <View style={{ height: 24 }} />
             <Text style={labelStyle}>DESCRIPCIÓN</Text>
             <TextInput
               value={descripcion}
@@ -498,29 +447,6 @@ export function IncomeSheet({ open, onDismiss }: Props) {
               </GradientView>
             </Pressable>
           </View>
-
-          <Modal visible={bancoMenu} transparent animationType="fade" onRequestClose={() => setBancoMenu(false)}>
-            <Pressable className="flex-1 justify-end " onPress={() => setBancoMenu(false)}>
-              <Pressable
-                className="mx-4 mb-8 rounded-2xl border border-border bg-bg p-2"
-                onPress={(e) => e.stopPropagation()}>
-                <FlatList
-                  data={[...bancosLista]}
-                  keyExtractor={(item) => item}
-                  renderItem={({ item }) => (
-                    <Pressable
-                      onPress={() => {
-                        setBanco(item);
-                        setBancoMenu(false);
-                      }}
-                      className="border-b border-border py-3 pl-3 active:bg-card">
-                      <Text className="text-base text-text">{item}</Text>
-                    </Pressable>
-                  )}
-                />
-              </Pressable>
-            </Pressable>
-          </Modal>
         </Animated.View>
       </View>
     </Modal>
