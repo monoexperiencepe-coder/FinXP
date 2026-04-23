@@ -190,10 +190,10 @@ export default function OnboardingScreen() {
   const gastosGridInnerW = windowWidth - 48;
   /** Espacio horizontal entre chips (columnas), ajustado al ancho de celda. */
   const GASTOS_COL_GAP_H = 4;
-  /** Más aire entre filas de chips (sin abrir tanto el hueco lateral). */
-  const GASTOS_ROW_GAP_V = 11;
-  /** 4 columnas en pantallas medianas+ → menos filas y altura. */
-  const GASTOS_COL_COUNT = windowWidth >= 380 ? 4 : 3;
+  /** Aire entre filas (chips con 2 líneas de texto = algo más de alto). */
+  const GASTOS_ROW_GAP_V = 7;
+  /** 4 columnas en pantallas anchas; 3 en típico móvil; 2 en muy estrecho = nombre completo. */
+  const GASTOS_COL_COUNT = windowWidth >= 400 ? 4 : windowWidth >= 340 ? 3 : 2;
   const gastosColWidth =
     (gastosGridInnerW - GASTOS_COL_GAP_H * (GASTOS_COL_COUNT - 1)) / GASTOS_COL_COUNT;
   const { user } = useAuthStore();
@@ -265,7 +265,7 @@ export default function OnboardingScreen() {
   const [ingresoAprox, setIngresoAprox]           = useState('');
 
   // ── Theme selection (onboarding) ────────────────────────────────────────────
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const T = isDarkMode ? darkTheme : lightTheme;
 
   // ── Profile ─────────────────────────────────────────────────────────────────
@@ -505,6 +505,7 @@ export default function OnboardingScreen() {
     setFinishing(true);
     try {
       const nombreGuardado = nombreUsuario.trim() || 'Usuario';
+      const themeMode: 'light' | 'dark' = isDarkMode ? 'dark' : 'light';
       await db.updateProfile(user.id, {
         nombre_usuario:     nombreGuardado,
         moneda_principal:   moneda,
@@ -512,7 +513,11 @@ export default function OnboardingScreen() {
         metodos_de_pago:    selectedPaymentMethods,
         bancos_disponibles: selectedBanks,
         onboarding_done:    true,
+        theme:              themeMode,
       });
+
+      useFinanceStore.setState({ theme: themeMode });
+      void AsyncStorage.setItem('ahorraya_dark_mode', themeMode === 'dark' ? 'true' : 'false');
 
       await loadFromSupabase();
 
@@ -525,6 +530,7 @@ export default function OnboardingScreen() {
           metodosDePago:     selectedPaymentMethods.map((n) => ({ id: createId(), nombre: n, activo: true })),
           bancosDisponibles: selectedBanks,
         },
+        theme: themeMode,
       }));
 
       const { supabase } = await import('@/lib/supabase');
@@ -1164,12 +1170,15 @@ export default function OnboardingScreen() {
                           activeOpacity={0.72}
                           hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                           accessibilityRole="button">
-                          <View style={S.gastosCardRow}>
-                            <Text style={S.gastosCardEmojiInline} allowFontScaling={false}>{cat.emoji}</Text>
+                          <View style={S.gastosCardCol}>
+                            <Text style={S.gastosCardEmojiTop} allowFontScaling={false}>
+                              {cat.emoji}
+                            </Text>
                             <Text
                               style={[S.gastosCardLabel, { color: active ? T.primary : T.textPrimary }]}
-                              numberOfLines={1}
-                              ellipsizeMode="tail">
+                              numberOfLines={2}
+                              ellipsizeMode="tail"
+                              allowFontScaling>
                               {cat.nombre}
                             </Text>
                           </View>
@@ -1206,9 +1215,15 @@ export default function OnboardingScreen() {
                           activeOpacity={0.72}
                           hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                           accessibilityRole="button">
-                          <View style={S.gastosCardRow}>
-                            <Text style={S.gastosCardEmojiInline} allowFontScaling={false}>{cat.emoji}</Text>
-                            <Text style={[S.gastosCardLabel, { color: T.primary }]} numberOfLines={1} ellipsizeMode="tail">
+                          <View style={S.gastosCardCol}>
+                            <Text style={S.gastosCardEmojiTop} allowFontScaling={false}>
+                              {cat.emoji}
+                            </Text>
+                            <Text
+                              style={[S.gastosCardLabel, { color: T.primary }]}
+                              numberOfLines={2}
+                              ellipsizeMode="tail"
+                              allowFontScaling>
                               {cat.nombre}
                             </Text>
                           </View>
@@ -1987,41 +2002,40 @@ const S = StyleSheet.create({
   },
   gastosCardSlot: { position: 'relative' as const },
   gastosCard: {
-    borderRadius: 20,
-    paddingVertical: 7,
-    paddingLeft: 6,
-    paddingRight: 5,
+    borderRadius: 18,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
     justifyContent: 'center' as const,
     width: '100%' as const,
-    minHeight: 40,
-  },
-  gastosCardRow: {
-    width: '100%' as const,
-    flexDirection: 'row' as const,
+    minHeight: 52,
     alignItems: 'center' as const,
-    gap: 3,
-    paddingRight: 9,
-    minHeight: 24,
   },
-  gastosCardEmojiInline: {
-    fontSize: 16,
-    lineHeight: 20,
-    width: 24,
+  /** Emoji arriba + label abajo: más ancho para el nombre en móvil. */
+  gastosCardCol: {
+    width: '100%' as const,
+    alignItems: 'center' as const,
+    paddingHorizontal: 1,
+    paddingTop: 1,
+    paddingRight: 8,
+  },
+  gastosCardEmojiTop: {
+    fontSize: 20,
+    lineHeight: 24,
     textAlign: 'center' as const,
+    marginBottom: 1,
   },
   gastosCardLabel: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 10.5,
+    width: '100%' as const,
+    fontSize: 11,
     fontWeight: '600' as const,
     fontFamily: 'PlusJakartaSans_600SemiBold',
-    textAlign: 'left' as const,
-    lineHeight: 13,
+    textAlign: 'center' as const,
+    lineHeight: 14,
   },
   gastosCardCheck: {
     position: 'absolute' as const,
-    top: 5,
-    right: 5,
+    top: 4,
+    right: 3,
     width: 14,
     height: 14,
     borderRadius: 7,

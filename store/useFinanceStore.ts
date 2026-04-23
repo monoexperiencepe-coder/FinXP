@@ -561,7 +561,7 @@ export const useFinanceStore = create<FinanceState>()(
   persist(
     (set, get) => ({
       ...seedState(),
-      theme: 'dark',
+      theme: 'light',
       syncing: false,
       lastSync: null,
       loadingCategories: false,
@@ -946,8 +946,15 @@ export const useFinanceStore = create<FinanceState>()(
               }
             : { ...prev.profile, id: userId };
 
-          const nextTheme =
-            profileRow?.theme === 'light' ? 'light' : profileRow?.theme === 'dark' ? 'dark' : prev.theme;
+          const tRaw = profileRow?.theme;
+          const nextTheme: 'light' | 'dark' =
+            tRaw === 'light'
+              ? 'light'
+              : tRaw === 'dark'
+                ? 'dark'
+                : tRaw == null || String(tRaw).trim() === ''
+                  ? 'light'
+                  : prev.theme;
 
           set({
             expenses,

@@ -24,6 +24,7 @@ import '../global.css';
 import { AppPreloader } from '@/components/AppPreloader';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
+import { useAppShellStore } from '@/store/useAppShellStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
@@ -37,7 +38,10 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [introDone, setIntroDone] = useState(false);
-  const onIntroFinish = useCallback(() => setIntroDone(true), []);
+  const onIntroFinish = useCallback(() => {
+    setIntroDone(true);
+    useAppShellStore.getState().setPreloaderComplete(true);
+  }, []);
 
   const themeMode = useFinanceStore((s) => s.theme);
   const T = themeMode === 'dark' ? darkTheme : lightTheme;
@@ -189,16 +193,23 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: T.bg }}>
+    <GestureHandlerRootView
+      style={{
+        flex: 1,
+        // Durante el preloader: look oscuro de marca; luego el tema guardado (día por defecto).
+        backgroundColor: !introDone ? darkTheme.bg : T.bg,
+      }}>
       <ThemeProvider value={navigationTheme}>
-        <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
+        <StatusBar
+          style={!introDone ? 'light' : themeMode === 'dark' ? 'light' : 'dark'}
+        />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         </Stack>
         {loaded && initialized && !introDone ? (
-          <AppPreloader theme={T} onFinish={onIntroFinish} />
+          <AppPreloader theme={darkTheme} onFinish={onIntroFinish} />
         ) : null}
       </ThemeProvider>
     </GestureHandlerRootView>

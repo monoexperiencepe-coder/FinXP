@@ -66,7 +66,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const uid = data.user?.id;
       if (uid && nombre) {
         const { error: profileErr } = await supabase.from('user_profiles').upsert(
-          { id: uid, nombre_usuario: nombre },
+          { id: uid, nombre_usuario: nombre, theme: 'light' },
           { onConflict: 'id' },
         );
         if (profileErr) console.error('user_profiles upsert (registro):', profileErr);

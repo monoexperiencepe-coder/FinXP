@@ -9,6 +9,7 @@ import PremiumTeaser, { PREMIUM_TEASER_KEY } from '@/components/PremiumTeaser';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import { Font } from '@/constants/typography';
+import { useAppShellStore } from '@/store/useAppShellStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
 function TabBarIcon(props: {
@@ -22,19 +23,25 @@ export default function TabLayout() {
   const isDark = useFinanceStore((s) => s.theme === 'dark');
   const T = isDark ? darkTheme : lightTheme;
   const [showTeaser, setShowTeaser] = useState(false);
+  const preloaderComplete = useAppShellStore((s) => s.preloaderComplete);
 
   useEffect(() => {
-    let t: ReturnType<typeof setTimeout>;
-    // Remove the key so it always shows during development
-    AsyncStorage.removeItem(PREMIUM_TEASER_KEY).then(() =>
-      AsyncStorage.getItem(PREMIUM_TEASER_KEY).then((val) => {
-        if (!val) {
-          t = setTimeout(() => setShowTeaser(true), 1500);
-        }
-      }),
-    );
-    return () => clearTimeout(t);
-  }, []);
+    if (!preloaderComplete) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const run = async () => {
+      if (__DEV__) {
+        await AsyncStorage.removeItem(PREMIUM_TEASER_KEY);
+      }
+      const val = await AsyncStorage.getItem(PREMIUM_TEASER_KEY);
+      if (!val) {
+        t = setTimeout(() => setShowTeaser(true), 320);
+      }
+    };
+    void run();
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [preloaderComplete]);
 
   return (
     <View style={{ flex: 1 }}>
