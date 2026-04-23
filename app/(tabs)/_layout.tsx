@@ -1,14 +1,19 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Tabs } from 'expo-router';
+import { Tabs, useSegments } from 'expo-router';
 import { View } from 'react-native';
 
 import ChatIA from '@/components/ChatIA';
-import PremiumTeaser, { PREMIUM_TEASER_KEY } from '@/components/PremiumTeaser';
+import PremiumTeaser from '@/components/PremiumTeaser';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import { Font } from '@/constants/typography';
+import {
+  canShowPremiumTeaserFromNavigation,
+  migrateLegacyPremiumTeaserFlag,
+  shouldScheduleFirstLaunchFromPerfil,
+  syncPremiumTeaserFromOnboardingFlag,
+} from '@/lib/premiumTeaserSchedule';
 import { useAppShellStore } from '@/store/useAppShellStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
@@ -24,24 +29,57 @@ export default function TabLayout() {
   const T = isDark ? darkTheme : lightTheme;
   const [showTeaser, setShowTeaser] = useState(false);
   const preloaderComplete = useAppShellStore((s) => s.preloaderComplete);
+  const segments = useSegments();
+  const lastSegment = segments[segments.length - 1] ?? '';
+  const lastSegmentRef = useRef(lastSegment);
+  lastSegmentRef.current = lastSegment;
 
   useEffect(() => {
     if (!preloaderComplete) return;
-    let t: ReturnType<typeof setTimeout> | undefined;
-    const run = async () => {
-      if (__DEV__) {
-        await AsyncStorage.removeItem(PREMIUM_TEASER_KEY);
-      }
-      const val = await AsyncStorage.getItem(PREMIUM_TEASER_KEY);
-      if (!val) {
-        t = setTimeout(() => setShowTeaser(true), 320);
-      }
-    };
-    void run();
-    return () => {
-      if (t) clearTimeout(t);
-    };
+    void migrateLegacyPremiumTeaserFlag();
+    void syncPremiumTeaserFromOnboardingFlag();
   }, [preloaderComplete]);
+
+  /** Primera vez: tras registrar perfil (onboarding), en Perfil ~10s. */
+  useEffect(() => {
+    if (!preloaderComplete || showTeaser) return;
+    if (lastSegment !== 'perfil') return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    void shouldScheduleFirstLaunchFromPerfil().then((ok) => {
+      if (!ok || cancelled) return;
+      timer = setTimeout(() => {
+        if (cancelled || lastSegmentRef.current !== 'perfil') return;
+        void shouldScheduleFirstLaunchFromPerfil().then((ok2) => {
+          if (ok2 && !cancelled) setShowTeaser(true);
+        });
+      }, 10000);
+    });
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [preloaderComplete, lastSegment, showTeaser]);
+
+  /** Siguientes veces: al volver a Inicio u otras pestañas (no Perfil), máx. 2/día y espaciado. */
+  const teaserNavSegments = ['index', 'gastos', 'resumen', 'misiones'] as const;
+  useEffect(() => {
+    if (!preloaderComplete || showTeaser) return;
+    if (lastSegment === 'perfil') return;
+    if (!teaserNavSegments.includes(lastSegment as (typeof teaserNavSegments)[number])) return;
+    const seg = lastSegment;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled || lastSegmentRef.current !== seg) return;
+      void canShowPremiumTeaserFromNavigation().then((can) => {
+        if (can && !cancelled) setShowTeaser(true);
+      });
+    }, 650);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [preloaderComplete, lastSegment, showTeaser]);
 
   return (
     <View style={{ flex: 1 }}>

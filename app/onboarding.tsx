@@ -22,6 +22,7 @@ import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import * as db from '@/lib/database';
 import { createId } from '@/lib/ids';
+import { markPremiumTeaserOnboardingComplete } from '@/lib/premiumTeaserSchedule';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
@@ -557,6 +558,7 @@ export default function OnboardingScreen() {
       } catch (e) { console.error('Error bloque ingresos:', e); }
 
       await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
+      void markPremiumTeaserOnboardingComplete();
       useFinanceStore.setState({ categories: [], incomeCategories: [] });
       const { loadFromSupabase: sync, loadCategories, loadIncomeCategories } = useFinanceStore.getState();
       await sync();
@@ -569,7 +571,8 @@ export default function OnboardingScreen() {
       console.error('Error in handleFinish:', e);
       setFinishing(false);
       await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
-      router.replace('/(tabs)' as any);
+      void markPremiumTeaserOnboardingComplete();
+      router.replace('/(tabs)/perfil' as any);
     }
   };
 
@@ -1457,7 +1460,7 @@ export default function OnboardingScreen() {
         </View>
       </Modal>
 
-      <LoaderTransicion visible={showLoader} onFinish={() => router.replace('/(tabs)' as any)} />
+      <LoaderTransicion visible={showLoader} onFinish={() => router.replace('/(tabs)/perfil' as any)} />
     </View>
   );
 }

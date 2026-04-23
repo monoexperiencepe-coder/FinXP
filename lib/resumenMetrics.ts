@@ -1,7 +1,7 @@
 import type { AppTheme } from '@/constants/theme';
 import { EXPENSE_CATEGORIES } from '@/constants/expenseCategories';
 import { convertAmount } from '@/lib/currency';
-import { addMonthsToYearMonth, lastNYearMonths, monthsOfYearUpTo } from '@/lib/dates';
+import { addMonthsToYearMonth, lastNYearMonths, monthsOfYearUpTo, parseDateKeyLocal, toDateKey } from '@/lib/dates';
 import type {
   Budget,
   CreditCard,
@@ -502,7 +502,7 @@ export function cardsOverUtilization(
 }
 
 /** Filtro de período en pantalla Resumen. */
-export type PeriodFilter = 'hoy' | 'semana' | 'mes';
+export type PeriodFilter = 'hoy' | 'semana' | 'mes' | 'personalizado';
 
 function startOfDay(d: Date): Date {
   const x = new Date(d);
@@ -533,8 +533,31 @@ export function endOfWeekSunday(d: Date): Date {
   return e;
 }
 
+/** Mismo número de días calendario que [from, to], inmediatamente anterior a `start`. */
+export function customPeriodBounds(fromInput: Date, toInput: Date): { start: Date; end: Date; prevStart: Date; prevEnd: Date } {
+  const start = startOfDay(fromInput);
+  const end = endOfDay(toInput);
+  const days = calendarDaysInclusive(start, end);
+  const dayBefore = new Date(start);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  const prevEnd = endOfDay(dayBefore);
+  const prevStart = startOfDay(dayBefore);
+  prevStart.setDate(prevStart.getDate() - (days - 1));
+  return { start, end, prevStart, prevEnd };
+}
+
+/** Límites válidos desde strings `YYYY-MM-DD`; null si inválido o desde > hasta. */
+export function tryCustomBoundsFromKeys(fromYmd: string, toYmd: string): { start: Date; end: Date; prevStart: Date; prevEnd: Date } | null {
+  const a = parseDateKeyLocal(fromYmd);
+  const b = parseDateKeyLocal(toYmd);
+  if (!a || !b) return null;
+  if (startOfDay(a).getTime() > startOfDay(b).getTime()) return null;
+  if (calendarDaysInclusive(startOfDay(a), endOfDay(b)) > 366) return null;
+  return customPeriodBounds(a, b);
+}
+
 export function periodBounds(
-  filter: PeriodFilter,
+  filter: Exclude<PeriodFilter, 'personalizado'>,
   ref = new Date(),
 ): { start: Date; end: Date; prevStart: Date; prevEnd: Date } {
   const refDay = startOfDay(ref);
@@ -862,7 +885,7 @@ export type TrendBarRow = { label: string; real: number; proj: number };
 
 /** Barras gastos reales vs proyección según filtro (eje X acotado). */
 export function buildExpenseTrendBars(
-  filter: PeriodFilter,
+  filter: Exclude<PeriodFilter, 'personalizado'>,
   ref: Date,
   expenses: Expense[],
   display: MonedaCode,
@@ -973,14 +996,59 @@ export function buildExpenseTrendBars(
 export function trendSubtext(filter: PeriodFilter): string {
   if (filter === 'hoy') return 'Franjas de 4 h (hoy)';
   if (filter === 'semana') return 'Semana actual (lun–dom)';
-  return 'Últimos 30 días';
+  if (filter === 'personalizado') return 'Rango de fechas personalizado';
+  return 'Mes calendario en curso';
 }
 
 /** Copy alineada al eje real del gráfico. */
 export function trendSubtextDetailed(filter: PeriodFilter): string {
   if (filter === 'hoy') return 'Franjas de 4 h (hoy)';
   if (filter === 'semana') return 'Días de la semana actual';
+  if (filter === 'personalizado') return 'Gastos reales acumulados por intervalo del rango elegido';
   return 'Días del mes en curso · proyección fin de mes';
+}
+
+export function trendSubtextCustomRange(start: Date, end: Date): string {
+  const a = toDateKey(start);
+  const b = toDateKey(end);
+  return a === b ? a : `${a} → ${b}`;
+}
+
+/** Barras de tendencia para un rango arbitrario (día a día si cabe; si no, por semana). */
+export function buildExpenseTrendBarsCustomRange(
+  start: Date,
+  end: Date,
+  expenses: Expense[],
+  display: MonedaCode,
+  rate: number,
+): TrendBarRow[] {
+  const s0 = startOfDay(start);
+  const e0 = endOfDay(end);
+  const days = calendarDaysInclusive(s0, e0);
+  if (days <= 31) {
+    const rows: TrendBarRow[] = [];
+    const cur = new Date(s0);
+    while (cur.getTime() <= e0.getTime()) {
+      const d0 = startOfDay(cur);
+      const d1 = endOfDay(d0);
+      const real = sumExpensesInRange(expenses, d0, d1, display, rate);
+      rows.push({ label: dayShortLabelEs(d0), real, proj: 0 });
+      cur.setDate(cur.getDate() + 1);
+    }
+    return rows;
+  }
+  const rows: TrendBarRow[] = [];
+  const cur = new Date(s0);
+  while (cur.getTime() <= e0.getTime()) {
+    const w0 = startOfDay(cur);
+    const w1 = new Date(w0);
+    w1.setDate(w1.getDate() + 6);
+    const segEnd = w1.getTime() > e0.getTime() ? e0 : endOfDay(w1);
+    const real = sumExpensesInRange(expenses, w0, segEnd, display, rate);
+    rows.push({ label: dayShortLabelEs(w0), real, proj: 0 });
+    cur.setDate(cur.getDate() + 7);
+  }
+  return rows;
 }
 
 export function computeResumenInsights(

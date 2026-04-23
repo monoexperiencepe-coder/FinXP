@@ -1,8 +1,14 @@
-import { useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { BadgeVariant } from '@/components/ui/Badge';
+import {
+  defaultResumenPeriodoPayload,
+  ResumenPeriodoModal,
+  type ResumenPeriodoPayload,
+} from '@/components/ResumenPeriodoModal';
 import { GradientView } from '@/components/ui/GradientView';
 import {
   chartProjectionFill,
@@ -15,6 +21,7 @@ import { formatMoney } from '@/lib/currency';
 import type { MonedaCode } from '@/types';
 import {
   buildExpenseTrendBars,
+  buildExpenseTrendBarsCustomRange,
   categoryBarColor,
   categorySpendInRange,
   computeResumenInsights,
@@ -26,15 +33,21 @@ import {
   sumIncomesInRange,
   topComerciosInRange,
   trendSubtext,
+  trendSubtextCustomRange,
   trendSubtextDetailed,
+  tryCustomBoundsFromKeys,
 } from '@/lib/resumenMetrics';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
-const FILTERS: { key: PeriodFilter; label: string }[] = [
+const FILTERS: { key: Exclude<PeriodFilter, 'personalizado'>; label: string }[] = [
   { key: 'hoy', label: 'Hoy' },
   { key: 'semana', label: 'Semana' },
   { key: 'mes', label: 'Mes' },
 ];
+
+const STORAGE_RESUMEN_RANGO = 'ahorraya_resumen_rango_v1';
+
+type ResumenRangoStored = ResumenPeriodoPayload & { activoPersonalizado?: boolean };
 
 const cardShadow = {
   shadowOffset: { width: 0, height: 8 },
@@ -296,11 +309,59 @@ export default function ResumenScreen() {
   const profile = useFinanceStore((s) => s.profile);
 
   const [period, setPeriod] = useState<PeriodFilter>('mes');
+  const [modalRangoVisible, setModalRangoVisible] = useState(false);
+  const [customPayload, setCustomPayload] = useState<ResumenPeriodoPayload>(() => defaultResumenPeriodoPayload());
+  const hidratoRango = useRef(false);
   const refDate = useMemo(() => new Date(), []);
   const display = profile.monedaPrincipal;
   const rate = profile.tipoDeCambio;
 
-  const bounds = useMemo(() => periodBounds(period, refDate), [period, refDate]);
+  useEffect(() => {
+    void AsyncStorage.getItem(STORAGE_RESUMEN_RANGO).then((raw) => {
+      if (!raw) {
+        hidratoRango.current = true;
+        return;
+      }
+      try {
+        const o = JSON.parse(raw) as ResumenRangoStored;
+        if (o?.from && o?.to && tryCustomBoundsFromKeys(o.from, o.to)) {
+          setCustomPayload({
+            from: o.from,
+            to: o.to,
+            presupuesto: typeof o.presupuesto === 'number' && o.presupuesto > 0 ? o.presupuesto : null,
+          });
+          if (o.activoPersonalizado === true) {
+            setPeriod('personalizado');
+          }
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        hidratoRango.current = true;
+      }
+    });
+  }, []);
+
+  /** Al volver a Hoy/Semana/Mes, se desactiva el rango para el próximo arranque (las fechas guardadas siguen sirviendo al abrir el modal). */
+  useEffect(() => {
+    if (!hidratoRango.current || period === 'personalizado') return;
+    void AsyncStorage.setItem(
+      STORAGE_RESUMEN_RANGO,
+      JSON.stringify({ ...customPayload, activoPersonalizado: false } satisfies ResumenRangoStored),
+    );
+  }, [period, customPayload]);
+
+  const customBoundsResolved = useMemo(
+    () => tryCustomBoundsFromKeys(customPayload.from, customPayload.to),
+    [customPayload.from, customPayload.to],
+  );
+
+  const bounds = useMemo(() => {
+    if (period === 'personalizado' && customBoundsResolved) return customBoundsResolved;
+    const preset: Exclude<PeriodFilter, 'personalizado'> =
+      period === 'personalizado' ? 'mes' : period;
+    return periodBounds(preset, refDate);
+  }, [period, customBoundsResolved, refDate]);
   const { start, end, prevStart, prevEnd } = bounds;
 
   const ingresos = useMemo(
@@ -331,10 +392,29 @@ export default function ResumenScreen() {
   const metaAhorro = 30;
   const superaMeta = ahorroPct >= metaAhorro;
 
-  const trendData = useMemo(
-    () => buildExpenseTrendBars(period, refDate, expenses, display, rate),
-    [display, expenses, period, rate, refDate],
-  );
+  const trendData = useMemo(() => {
+    if (period === 'personalizado' && customBoundsResolved) {
+      return buildExpenseTrendBarsCustomRange(
+        customBoundsResolved.start,
+        customBoundsResolved.end,
+        expenses,
+        display,
+        rate,
+      );
+    }
+    const preset: Exclude<PeriodFilter, 'personalizado'> =
+      period === 'personalizado' ? 'mes' : period;
+    return buildExpenseTrendBars(preset, refDate, expenses, display, rate);
+  }, [customBoundsResolved, display, expenses, period, rate, refDate]);
+
+  const onApplyRango = (p: ResumenPeriodoPayload) => {
+    if (!tryCustomBoundsFromKeys(p.from, p.to)) return;
+    setCustomPayload(p);
+    setPeriod('personalizado');
+    setModalRangoVisible(false);
+    const stored: ResumenRangoStored = { ...p, activoPersonalizado: true };
+    void AsyncStorage.setItem(STORAGE_RESUMEN_RANGO, JSON.stringify(stored));
+  };
 
   const paymentSplit = useMemo(
     () => paymentMethodSplitInRange(expenses, start, end, display, rate, profile.metodosDePago ?? null, T),
@@ -385,6 +465,12 @@ export default function ResumenScreen() {
   const badgeGastos = fmtPct(pctGastos);
   const gastosSubieron = pctGastos !== null && pctGastos > 0;
 
+  const presupuestoCap = customPayload.presupuesto;
+  const pctPresupuesto =
+    period === 'personalizado' && presupuestoCap != null && presupuestoCap > 0
+      ? Math.min(100, (gastos / presupuestoCap) * 100)
+      : null;
+
   const ingresosBadgeVariant: BadgeVariant =
     badgeIngresos === '—' ? 'muted' : pctIngresos !== null && pctIngresos >= 0 ? 'green' : 'red';
   const gastosBadgeVariant: BadgeVariant =
@@ -393,6 +479,12 @@ export default function ResumenScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
+      <ResumenPeriodoModal
+        visible={modalRangoVisible}
+        onClose={() => setModalRangoVisible(false)}
+        onApply={onApplyRango}
+        initial={customPayload}
+      />
       <View style={{ flex: 1, maxWidth: 390, width: '100%', alignSelf: 'center' }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -402,7 +494,7 @@ export default function ResumenScreen() {
             Análisis detallado de tus finanzas
           </Text>
 
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
             {FILTERS.map((f) => {
               const active = period === f.key;
               return (
@@ -433,7 +525,72 @@ export default function ResumenScreen() {
                 </Pressable>
               );
             })}
+            <Pressable onPress={() => setModalRangoVisible(true)}>
+              {period === 'personalizado' ? (
+                <GradientView
+                  colors={T.primaryGrad}
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                  }}>
+                  <Text style={{ fontFamily: Font.jakarta600, color: onPrimaryGradient.text, fontSize: 14 }}>Rango</Text>
+                </GradientView>
+              ) : (
+                <View
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                    backgroundColor: T.card,
+                    borderWidth: 1,
+                    borderColor: T.glassBorder,
+                  }}>
+                  <Text style={{ fontFamily: Font.jakarta600, color: T.textMuted, fontSize: 14 }}>Rango</Text>
+                </View>
+              )}
+            </Pressable>
           </View>
+
+          {period === 'personalizado' && customBoundsResolved && (
+            <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 12, marginTop: 10 }}>
+              Análisis: {trendSubtextCustomRange(customBoundsResolved.start, customBoundsResolved.end)}
+            </Text>
+          )}
+
+          {pctPresupuesto != null && presupuestoCap != null && (
+            <View
+              style={{
+                marginTop: 14,
+                borderRadius: 16,
+                padding: 14,
+                backgroundColor: T.card,
+                borderWidth: 1,
+                borderColor: T.glassBorder,
+              }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 14 }}>Presupuesto del período</Text>
+                <Text style={{ fontFamily: Font.manrope600, color: T.textMuted, fontSize: 11 }}>
+                  {formatMoney(gastos, display)} / {formatMoney(presupuestoCap, display)}
+                </Text>
+              </View>
+              <View style={{ height: 8, borderRadius: 4, backgroundColor: T.cardElevated, overflow: 'hidden' }}>
+                <View
+                  style={{
+                    width: `${pctPresupuesto}%` as `${number}%`,
+                    height: '100%',
+                    borderRadius: 4,
+                    backgroundColor: pctPresupuesto >= 100 ? T.error : pctPresupuesto >= 85 ? T.warning : T.primary,
+                  }}
+                />
+              </View>
+              <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11, marginTop: 6 }}>
+                {pctPresupuesto >= 100
+                  ? 'Superaste el tope definido para este rango.'
+                  : `Te queda aprox. ${formatMoney(Math.max(0, presupuestoCap - gastos), display)} bajo el tope.`}
+              </Text>
+            </View>
+          )}
 
           <GradientView
             colors={T.primaryGrad}
@@ -595,7 +752,9 @@ export default function ResumenScreen() {
               </View>
             </View>
             <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 12, marginTop: 4 }}>
-              {trendSubtext(period)}
+              {period === 'personalizado' && customBoundsResolved
+                ? trendSubtextCustomRange(customBoundsResolved.start, customBoundsResolved.end)
+                : trendSubtext(period === 'personalizado' ? 'mes' : period)}
             </Text>
             <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11, marginTop: 2 }}>
               {trendSubtextDetailed(period)}

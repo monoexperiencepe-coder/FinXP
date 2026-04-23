@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -21,6 +22,71 @@ import * as db from '@/lib/database';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_BANCOS_DISPONIBLES, DEFAULT_METODOS_DE_PAGO } from '@/types';
+import type { AppTheme } from '@/constants/theme';
+
+/** Switch nativo en web es un checkbox casi invisible en modo claro; pill accesible con buen contraste. */
+function ModoOscuroSwitch({
+  value,
+  onToggle,
+  isDark,
+  T,
+}: {
+  value: boolean;
+  onToggle: () => void;
+  isDark: boolean;
+  T: AppTheme;
+}) {
+  if (Platform.OS === 'web') {
+    const trackOff = '#B8A7C9';
+    const trackOn = T.primary;
+    const borderOff = 'rgba(74,63,107,0.45)';
+    const borderOn = T.primaryDark;
+    return (
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityState={{ checked: value }}
+        onPress={onToggle}
+        style={{
+          width: 52,
+          height: 30,
+          borderRadius: 15,
+          backgroundColor: value ? trackOn : trackOff,
+          borderWidth: 1,
+          borderColor: value ? borderOn : borderOff,
+          padding: 3,
+          justifyContent: 'center',
+        }}>
+        <View
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            backgroundColor: '#FFFFFF',
+            alignSelf: value ? 'flex-end' : 'flex-start',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.18,
+            shadowRadius: 2,
+            elevation: 2,
+          }}
+        />
+      </Pressable>
+    );
+  }
+
+  return (
+    <Switch
+      value={value}
+      onValueChange={onToggle}
+      ios_backgroundColor={isDark ? T.cardElevated : '#B8A7C9'}
+      trackColor={{
+        false: isDark ? T.cardElevated : '#C4B4D6',
+        true: isDark ? 'rgba(124,58,237,0.5)' : '#8B5CF6',
+      }}
+      thumbColor={isDark ? (value ? '#EDE6FF' : T.primary) : '#FFFFFF'}
+    />
+  );
+}
 
 function AccordionSection({
   title,
@@ -493,11 +559,11 @@ export default function PerfilScreen() {
                 <Text style={{ fontSize: 20 }}>{isDark ? '🌙' : '☀️'}</Text>
                 <Text style={{ fontFamily: Font.manrope500, color: T.textPrimary, fontSize: 15 }}>Modo oscuro</Text>
               </View>
-              <Switch
+              <ModoOscuroSwitch
                 value={isDark}
-                onValueChange={() => toggleTheme()}
-                thumbColor={isDark ? T.primary : T.textMuted}
-                trackColor={{ true: T.primaryBg, false: T.cardElevated }}
+                onToggle={() => toggleTheme()}
+                isDark={isDark}
+                T={T}
               />
             </View>
 

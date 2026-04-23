@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -12,9 +11,9 @@ import {
   View,
 } from 'react-native';
 
-const { width: W, height: H } = Dimensions.get('window');
+import { recordPremiumTeaserDismissed } from '@/lib/premiumTeaserSchedule';
 
-export const PREMIUM_TEASER_KEY = 'ahorraya_premium_teaser_shown_v2';
+const { width: W, height: H } = Dimensions.get('window');
 
 const SLIDE_DURATION = 8000;
 
@@ -245,7 +244,7 @@ export default function PremiumTeaser({ visible, onClose }: Props) {
   const handleClose = useCallback(async () => {
     progressRef.current?.stop();
     Animated.timing(backdropOp, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => onClose());
-    await AsyncStorage.setItem(PREMIUM_TEASER_KEY, 'true');
+    await recordPremiumTeaserDismissed();
   }, [onClose]);
 
   const nextSlide = useCallback(() => {

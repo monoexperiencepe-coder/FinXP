@@ -7,19 +7,25 @@ import Svg, { Circle, Defs, G, RadialGradient as SvgRadialGradient, Stop } from 
 import { ExpenseFullSheet } from '@/components/ExpenseFullSheet';
 import { FirstExpenseWalletModal, markFirstExpenseWalletSkipped, shouldShowFirstExpenseWallet } from '@/components/FirstExpenseWalletModal';
 import { IncomeSheet } from '@/components/IncomeSheet';
-import JarvisGuide from '@/components/JarvisGuide';
 import { GradientView } from '@/components/ui/GradientView';
 import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
 import { formatMoney } from '@/lib/currency';
+import {
+  getPendingJarvisSteps,
+  loadJarvisSkipped,
+  saveJarvisSkipped,
+  type JarvisMissionStep,
+  type JarvisMissionStepId,
+} from '@/lib/jarvisMissions';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
 /* ────────────────────────────────────────────────────────────────────────────── */
 
-/* ── Premium donut (nativo) — track semi-opaco, arco blanco brillante ── */
-function NativeDonut({ usedPct, arcColor }: { usedPct: number; arcColor: string }) {
+/* ── Premium donut (nativo) — track según modo ── */
+function NativeDonut({ usedPct, arcColor, trackColor }: { usedPct: number; arcColor: string; trackColor: string }) {
   const size = 132;
   const cx = size / 2;
   const cy = size / 2;
@@ -37,7 +43,7 @@ function NativeDonut({ usedPct, arcColor }: { usedPct: number; arcColor: string 
       </Defs>
       <G rotation="-90" origin={`${cx}, ${cy}`}>
         {/* Track */}
-        <Circle cx={cx} cy={cy} r={r} stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} fill="none" />
+        <Circle cx={cx} cy={cy} r={r} stroke={trackColor} strokeWidth={stroke} fill="none" />
         {/* Arc */}
         <Circle
           cx={cx} cy={cy} r={r}
@@ -50,11 +56,11 @@ function NativeDonut({ usedPct, arcColor }: { usedPct: number; arcColor: string 
   );
 }
 
-function WebDonut({ usedPct, arcColor }: { usedPct: number; arcColor: string }) {
+function WebDonut({ usedPct, arcColor, trackColor }: { usedPct: number; arcColor: string; trackColor: string }) {
   if (Platform.OS !== 'web') return null;
   const chartData = [
     { name: 'Usado', value: usedPct, color: arcColor },
-    { name: 'Restante', value: Math.max(0, 100 - usedPct), color: 'rgba(255,255,255,0.08)' },
+    { name: 'Restante', value: Math.max(0, 100 - usedPct), color: trackColor },
   ];
   const { PieChart, Pie, Cell } = require('recharts') as typeof import('recharts');
   return (
@@ -153,7 +159,7 @@ function MetricPill({ label, value, color, T }: {
 /* ────────────────────────────────────────────────────────────────────────────── */
 
 export default function HomeScreen() {
-  const { T } = useTheme();
+  const { T, isDark } = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const maxW = Math.min(width, 390);
@@ -172,12 +178,21 @@ export default function HomeScreen() {
   const [incomeSheetOpen,     setIncomeSheetOpen]     = useState(false);
   const [firstWalletModalOpen, setFirstWalletModalOpen] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
+  const [jarvisSkipped, setJarvisSkipped] = useState<JarvisMissionStepId[]>([]);
+  const [jarvisLoaded, setJarvisLoaded] = useState(false);
 
   useEffect(() => {
     if (session) {
       loadFromSupabase().then(() => loadCategories());
     }
   }, [session]);
+
+  useEffect(() => {
+    void loadJarvisSkipped().then((ids) => {
+      setJarvisSkipped(ids);
+      setJarvisLoaded(true);
+    });
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setToastVisible(true), 1800);
@@ -252,6 +267,41 @@ export default function HomeScreen() {
   const pendingMissions  = useMemo(() => missions.filter((m) => !m.completada), [missions]);
   const availableMissions = pendingMissions.slice(0, 3);
 
+  const pendingJarvisSteps = useMemo(
+    () =>
+      jarvisLoaded
+        ? getPendingJarvisSteps({ expenses, incomes, budgets, profile, skipped: jarvisSkipped })
+        : [],
+    [jarvisLoaded, expenses, incomes, budgets, profile, jarvisSkipped],
+  );
+
+  const skipJarvisStep = useCallback(async (id: JarvisMissionStepId) => {
+    const next = [...jarvisSkipped, id];
+    setJarvisSkipped(next);
+    await saveJarvisSkipped(next);
+  }, [jarvisSkipped]);
+
+  const onJarvisStepCta = useCallback(
+    (step: JarvisMissionStep) => {
+      switch (step.id) {
+        case 'primer_gasto':
+        case 'racha_3_dias':
+          void openExpenseFlow();
+          break;
+        case 'primer_ingreso':
+          setIncomeSheetOpen(true);
+          break;
+        case 'establecer_presupuesto':
+          router.push('/(tabs)/resumen' as any);
+          break;
+        case 'definir_meta':
+          router.push('/(tabs)/perfil' as any);
+          break;
+      }
+    },
+    [openExpenseFlow, router],
+  );
+
   /* Toast message */
   const toastMsg = useMemo(() => {
     if (profile.rachaActual > 0) return { emoji: '🔥', msg: `¡${profile.rachaActual} días seguidos! Seguí así.` };
@@ -265,6 +315,10 @@ export default function HomeScreen() {
   }, [profile.nivel]);
 
   const pctColor = pctUsado >= 90 ? T.error : pctUsado >= 70 ? T.warning : T.primary;
+
+  const premiumGrad = isDark ? (['#1A0B3B', '#0D1040', '#0A1628'] as const) : (['#FFFFFF', '#F6F1FF', '#EDE6FF'] as const);
+  const donutTrackColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(26,16,53,0.1)';
+  const arcColorDonut = pctUsado >= 90 ? '#FF5E7D' : pctUsado >= 70 ? '#FFB84D' : '#7C3AED';
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
@@ -284,53 +338,74 @@ export default function HomeScreen() {
 
           {/* ── HEADER ── */}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-            <View
-              style={{
-                width: 46, height: 46, borderRadius: 23,
-                borderWidth: 2, borderColor: T.primaryBorder,
-                alignItems: 'center', justifyContent: 'center',
-                marginRight: 12,
-              }}>
-              <GradientView
-                colors={T.primaryGrad}
-                style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 18 }}>{initial}</Text>
-              </GradientView>
+            {/* Avatar con anillo de glow en dark */}
+            <View style={{ marginRight: 12 }}>
+              <View
+                style={{
+                  width: 50, height: 50, borderRadius: 25,
+                  alignItems: 'center', justifyContent: 'center',
+                  ...(isDark
+                    ? { shadowColor: '#7C3AED', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 14, elevation: 10 }
+                    : {}),
+                }}>
+                <GradientView
+                  colors={T.primaryGrad}
+                  style={{
+                    width: 50, height: 50, borderRadius: 25,
+                    alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 2,
+                    borderColor: isDark ? 'rgba(157,95,240,0.6)' : T.primaryBorder,
+                  }}>
+                  <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 20 }}>{initial}</Text>
+                </GradientView>
+              </View>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 20 }}>
+              <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 20, lineHeight: 26 }}>
                 ¡Hola, {profile.nombreUsuario || 'Usuario'}! 👋
               </Text>
               <Text style={{ fontFamily: Font.manrope400, color: T.textSecondary, fontSize: 12 }} numberOfLines={1}>
                 {motivPhrase}
               </Text>
             </View>
+            {/* Notificación / status live dot en dark */}
+            {isDark && (
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#4DF2B1', marginLeft: 8,
+                shadowColor: '#4DF2B1', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 6 }}
+              />
+            )}
           </View>
-
-          {/* ── JARVIS GUIDE ── */}
-          <JarvisGuide
-            onRegisterExpense={() => void openExpenseFlow()}
-            onRegisterIncome={() => setIncomeSheetOpen(true)}
-            onGoToBudgets={() => router.push('/(tabs)/resumen' as any)}
-            onGoToProfile={() => router.push('/(tabs)/perfil' as any)}
-          />
 
           {/* ── CARD PREMIUM ── */}
           <GradientView
-            colors={['#1A0B3B', '#0D1040', '#0A1628']}
+            colors={premiumGrad}
             style={{
               borderRadius: 22,
               marginBottom: 12,
               overflow: 'hidden',
+              borderWidth: isDark ? 0 : 1,
+              borderColor: isDark ? 'transparent' : T.glassBorder,
               ...Platform.select({
-                ios: { shadowColor: '#7C3AED', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.5, shadowRadius: 24 },
-                android: { elevation: 18 },
-                web: { boxShadow: '0 12px 40px rgba(124,58,237,0.35)' } as object,
+                ios: {
+                  shadowColor: '#7C3AED',
+                  shadowOffset: { width: 0, height: isDark ? 12 : 8 },
+                  shadowOpacity: isDark ? 0.5 : 0.18,
+                  shadowRadius: isDark ? 24 : 14,
+                },
+                android: { elevation: isDark ? 18 : 6 },
+                web: {
+                  boxShadow: isDark
+                    ? '0 12px 40px rgba(124,58,237,0.35)'
+                    : '0 8px 24px rgba(124,58,237,0.1)',
+                } as object,
               }),
             }}>
             {/* Borde superior con gradiente de acento */}
             <View style={{ height: 2, backgroundColor: 'transparent' }}>
-              <GradientView colors={['#7C3AED', '#00D4FF', '#4DF2B1']} style={{ height: 2 }} />
+              <GradientView
+                colors={isDark ? ['#7C3AED', '#00D4FF', '#4DF2B1'] : ['#8B5CF6', '#38BDF8', '#34D399']}
+                style={{ height: 2 }}
+              />
             </View>
 
             {/* Orb decorativo de fondo */}
@@ -339,7 +414,7 @@ export default function HomeScreen() {
               style={{
                 position: 'absolute', top: -30, right: -30,
                 width: 160, height: 160, borderRadius: 80,
-                backgroundColor: 'rgba(124,58,237,0.15)',
+                backgroundColor: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
               }}
             />
             <View
@@ -347,7 +422,7 @@ export default function HomeScreen() {
               style={{
                 position: 'absolute', bottom: -20, left: 20,
                 width: 100, height: 100, borderRadius: 50,
-                backgroundColor: 'rgba(0,212,255,0.07)',
+                backgroundColor: isDark ? 'rgba(0,212,255,0.07)' : 'rgba(0,153,187,0.06)',
               }}
             />
 
@@ -358,23 +433,24 @@ export default function HomeScreen() {
                 <View style={{ width: 132, height: 132, alignItems: 'center', justifyContent: 'center' }}>
                   <View style={{ position: 'absolute' }}>
                     {Platform.OS === 'web'
-                      ? <WebDonut usedPct={pctUsado} arcColor={pctUsado >= 90 ? '#FF5E7D' : pctUsado >= 70 ? '#FFB84D' : '#7C3AED'} />
-                      : <NativeDonut usedPct={pctUsado} arcColor={pctUsado >= 90 ? '#FF5E7D' : pctUsado >= 70 ? '#FFB84D' : '#7C3AED'} />}
+                      ? <WebDonut usedPct={pctUsado} arcColor={arcColorDonut} trackColor={donutTrackColor} />
+                      : <NativeDonut usedPct={pctUsado} arcColor={arcColorDonut} trackColor={donutTrackColor} />}
                   </View>
                   <View style={{ alignItems: 'center' }}>
-                    <Text style={{ fontFamily: Font.jakarta700, color: '#FFFFFF', fontSize: 17, textAlign: 'center' }}>
+                    <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 17, textAlign: 'center' }}>
                       {formatMoney(gastadoMes, profile.monedaPrincipal)}
                     </Text>
-                    <Text style={{ fontFamily: Font.manrope400, color: 'rgba(255,255,255,0.45)', fontSize: 9, marginTop: 1 }}>
+                    <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 9, marginTop: 1 }}>
                       GASTADO
                     </Text>
                     {limiteMes > 0 && (
                       <View style={{
                         marginTop: 4, paddingHorizontal: 6, paddingVertical: 2,
-                        backgroundColor: 'rgba(124,58,237,0.3)',
-                        borderRadius: 6, borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)',
+                        backgroundColor: isDark ? 'rgba(124,58,237,0.3)' : T.primaryBg,
+                        borderRadius: 6, borderWidth: 1,
+                        borderColor: isDark ? 'rgba(124,58,237,0.5)' : T.primaryBorder,
                       }}>
-                        <Text style={{ fontFamily: Font.jakarta700, color: '#9D5FF0', fontSize: 9 }}>
+                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#9D5FF0' : T.primary, fontSize: 9 }}>
                           {Math.round(pctUsado)}% del límite
                         </Text>
                       </View>
@@ -385,9 +461,27 @@ export default function HomeScreen() {
                 {/* Métricas verticales */}
                 <View style={{ flex: 1, gap: 6 }}>
                   {[
-                    { label: 'HOY', value: formatMoney(todaySpent, profile.monedaPrincipal), accent: '#FF5E7D', dim: 'rgba(255,94,125,0.15)' },
-                    { label: 'SEMANA', value: formatMoney(weekSpent, profile.monedaPrincipal), accent: '#FFB84D', dim: 'rgba(255,184,77,0.15)' },
-                    { label: 'MES', value: formatMoney(gastadoMes, profile.monedaPrincipal), accent: '#7C3AED', dim: 'rgba(124,58,237,0.15)' },
+                    {
+                      label: 'HOY',
+                      value: formatMoney(todaySpent, profile.monedaPrincipal),
+                      accent: '#FF5E7D',
+                      dim: isDark ? 'rgba(255,94,125,0.15)' : 'rgba(255,94,125,0.08)',
+                      borderA: isDark ? '33' : '28',
+                    },
+                    {
+                      label: 'SEMANA',
+                      value: formatMoney(weekSpent, profile.monedaPrincipal),
+                      accent: '#FFB84D',
+                      dim: isDark ? 'rgba(255,184,77,0.15)' : 'rgba(255,184,77,0.1)',
+                      borderA: isDark ? '33' : '28',
+                    },
+                    {
+                      label: 'MES',
+                      value: formatMoney(gastadoMes, profile.monedaPrincipal),
+                      accent: '#7C3AED',
+                      dim: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
+                      borderA: isDark ? '33' : '28',
+                    },
                   ].map((m) => (
                     <View
                       key={m.label}
@@ -400,12 +494,12 @@ export default function HomeScreen() {
                         paddingHorizontal: 10,
                         paddingVertical: 5,
                         borderWidth: 1,
-                        borderColor: m.accent + '33',
+                        borderColor: m.accent + m.borderA,
                       }}>
-                      <Text style={{ fontFamily: Font.manrope600, color: 'rgba(255,255,255,0.45)', fontSize: 10, letterSpacing: 1 }}>
+                      <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 10, letterSpacing: 1 }}>
                         {m.label}
                       </Text>
-                      <Text style={{ fontFamily: Font.jakarta700, color: '#FFFFFF', fontSize: 13 }} numberOfLines={1}>
+                      <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 13 }} numberOfLines={1}>
                         {m.value}
                       </Text>
                     </View>
@@ -414,14 +508,39 @@ export default function HomeScreen() {
               </View>
 
               {/* Separador */}
-              <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.07)', marginBottom: 12 }} />
+              <View style={{
+                height: 1,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.12)',
+                marginBottom: 12,
+              }} />
 
               {/* Gamificación badges */}
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {[
-                  { icon: '🔥', label: 'RACHA', value: `${profile.rachaActual} días`, glow: '#FF5E7D', bg: 'rgba(255,94,125,0.12)', border: 'rgba(255,94,125,0.3)' },
-                  { icon: '🎖️', label: 'NIVEL', value: `${profile.nivel}`, glow: '#FFD700', bg: 'rgba(255,215,0,0.1)', border: 'rgba(255,215,0,0.3)' },
-                  { icon: '⚡', label: 'XP', value: `${profile.xpActual}`, glow: '#7C3AED', bg: 'rgba(124,58,237,0.15)', border: 'rgba(124,58,237,0.4)' },
+                  {
+                    icon: '🔥',
+                    label: 'RACHA',
+                    value: `${profile.rachaActual} días`,
+                    glow: '#FF5E7D',
+                    bg: isDark ? 'rgba(255,94,125,0.12)' : 'rgba(255,94,125,0.08)',
+                    border: isDark ? 'rgba(255,94,125,0.3)' : 'rgba(255,94,125,0.22)',
+                  },
+                  {
+                    icon: '🎖️',
+                    label: 'NIVEL',
+                    value: `${profile.nivel}`,
+                    glow: '#FFD700',
+                    bg: isDark ? 'rgba(255,215,0,0.1)' : 'rgba(184,134,11,0.1)',
+                    border: isDark ? 'rgba(255,215,0,0.3)' : 'rgba(184,134,11,0.22)',
+                  },
+                  {
+                    icon: '⚡',
+                    label: 'XP',
+                    value: `${profile.xpActual}`,
+                    glow: '#7C3AED',
+                    bg: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
+                    border: isDark ? 'rgba(124,58,237,0.4)' : 'rgba(124,58,237,0.22)',
+                  },
                 ].map((g) => (
                   <View
                     key={g.label}
@@ -433,15 +552,17 @@ export default function HomeScreen() {
                       borderRadius: 12,
                       borderWidth: 1,
                       borderColor: g.border,
-                      ...Platform.select({
-                        ios: { shadowColor: g.glow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 8 },
-                        android: { elevation: 4 },
-                        default: {},
-                      }),
+                      ...(isDark
+                        ? Platform.select({
+                          ios: { shadowColor: g.glow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 8 },
+                          android: { elevation: 4 },
+                          default: {},
+                        })
+                        : {}),
                     }}>
                     <Text style={{ fontSize: 18 }}>{g.icon}</Text>
-                    <Text style={{ fontFamily: Font.jakarta700, color: '#FFFFFF', fontSize: 15, marginTop: 2 }}>{g.value}</Text>
-                    <Text style={{ fontFamily: Font.manrope500, color: 'rgba(255,255,255,0.4)', fontSize: 9, letterSpacing: 1 }}>{g.label}</Text>
+                    <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 15, marginTop: 2 }}>{g.value}</Text>
+                    <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.4)' : T.textMuted, fontSize: 9, letterSpacing: 1 }}>{g.label}</Text>
                   </View>
                 ))}
               </View>
@@ -450,68 +571,84 @@ export default function HomeScreen() {
 
           {/* ── CTAs EN FILA ── */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+            {/* GASTO */}
             <Pressable
               onPress={() => void openExpenseFlow()}
               style={{
-                flex: 2,
-                borderRadius: 16,
-                overflow: 'hidden',
-                shadowColor: T.shadowPrimary,
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 1,
-                shadowRadius: 16,
-                elevation: 10,
+                flex: 2, borderRadius: 16, overflow: 'hidden',
+                shadowColor: '#7C3AED',
+                shadowOffset: { width: 0, height: isDark ? 10 : 6 },
+                shadowOpacity: isDark ? 0.7 : 0.4,
+                shadowRadius: isDark ? 20 : 14,
+                elevation: isDark ? 14 : 10,
               }}>
-              <GradientView colors={T.primaryGrad} style={{ height: 60, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 15 }}>
+              <GradientView colors={['#8B47FF', '#5B21B6']} style={{ height: 60, alignItems: 'center', justifyContent: 'center' }}>
+                {/* Brillo sutil superior */}
+                <View style={{
+                  position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+                  backgroundColor: 'rgba(255,255,255,0.25)',
+                }} />
+                <Text style={{ fontFamily: Font.jakarta700, color: '#FFFFFF', fontSize: 15 }}>
                   ⚡ REGISTRAR GASTO
                 </Text>
-                <Text style={{ fontFamily: Font.manrope400, color: onPrimaryGradient.textMuted, fontSize: 11, marginTop: 1 }}>
+                <Text style={{ fontFamily: Font.manrope400, color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 1 }}>
                   Rápido y fácil
                 </Text>
               </GradientView>
             </Pressable>
 
+            {/* INGRESO */}
             <Pressable
               onPress={() => setIncomeSheetOpen(true)}
               style={{
-                flex: 1,
-                height: 60,
-                borderRadius: 16,
-                borderWidth: 1,
-                borderColor: T.primaryBorder,
-                backgroundColor: T.primaryBg,
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 2,
+                flex: 1, height: 60, borderRadius: 16,
+                borderWidth: isDark ? 1 : 1,
+                borderColor: isDark ? 'rgba(0,212,255,0.35)' : T.primaryBorder,
+                backgroundColor: isDark ? 'rgba(0,212,255,0.08)' : T.primaryBg,
+                alignItems: 'center', justifyContent: 'center', gap: 2,
+                ...(isDark ? {
+                  shadowColor: '#00D4FF',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 12,
+                  elevation: 8,
+                } : {}),
               }}>
               <Text style={{ fontSize: 18 }}>📥</Text>
-              <Text style={{ fontFamily: Font.manrope600, color: T.primary, fontSize: 11 }}>INGRESO</Text>
+              <Text style={{ fontFamily: Font.manrope600, color: isDark ? '#00D4FF' : T.primary, fontSize: 11 }}>INGRESO</Text>
             </Pressable>
           </View>
 
           {/* ── BOTONES DE ACCIÓN ── */}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
             {[
-              { label: 'Ver gastos', emoji: '📊', onPress: () => router.push('/(tabs)/gastos' as any) },
-              { label: 'Asistente IA', emoji: '🤖', onPress: () => {} },
-              { label: 'Conectar banco', emoji: '🏦', onPress: () => {} },
+              { label: 'Ver gastos', emoji: '📊', accent: '#7C3AED', onPress: () => router.push('/(tabs)/gastos' as any) },
+              { label: 'Asistente IA', emoji: '🤖', accent: '#00D4FF', onPress: () => {} },
+              { label: 'Conectar banco', emoji: '🏦', accent: '#4DF2B1', onPress: () => {} },
             ].map((btn) => (
               <Pressable
                 key={btn.label}
                 onPress={btn.onPress}
                 style={{
                   flex: 1,
-                  backgroundColor: T.card,
+                  backgroundColor: isDark ? `${btn.accent}11` : T.card,
                   borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: T.glassBorder,
+                  borderColor: isDark ? `${btn.accent}30` : T.glassBorder,
                   paddingVertical: 10,
-                  alignItems: 'center',
-                  gap: 4,
+                  alignItems: 'center', gap: 4,
+                  ...(isDark ? {
+                    shadowColor: btn.accent,
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.35,
+                    shadowRadius: 8,
+                    elevation: 6,
+                  } : {}),
                 }}>
                 <Text style={{ fontSize: 18 }}>{btn.emoji}</Text>
-                <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 10, textAlign: 'center' }}>{btn.label}</Text>
+                <Text style={{ fontFamily: Font.manrope500, color: isDark ? `${btn.accent}CC` : T.textSecondary, fontSize: 10, textAlign: 'center' }}>
+                  {btn.label}
+                </Text>
               </Pressable>
             ))}
           </View>
@@ -520,71 +657,205 @@ export default function HomeScreen() {
           {topCats.length > 0 && (
             <View
               style={{
-                backgroundColor: T.card,
+                backgroundColor: isDark ? T.cardElevated : T.card,
                 borderRadius: 18,
                 borderWidth: 1,
-                borderColor: T.glassBorder,
+                borderColor: isDark ? 'rgba(124,58,237,0.2)' : T.glassBorder,
                 padding: 14,
                 marginBottom: 12,
+                ...(isDark ? {
+                  shadowColor: '#7C3AED',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 16,
+                  elevation: 8,
+                } : {}),
               }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+              {/* Header con acento de gradiente */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <GradientView
+                  colors={isDark ? ['#7C3AED', '#5B21B6'] : [T.primary, T.primary]}
+                  style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 8 }}>
+                  <Text style={{ fontSize: 13 }}>📈</Text>
+                </GradientView>
                 <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 14, flex: 1 }}>
-                  📈 Top categorías
+                  Top categorías
                 </Text>
-                <Text style={{ fontFamily: Font.manrope500, color: T.textMuted, fontSize: 11 }}>este mes</Text>
+                <View style={{
+                  paddingHorizontal: 8, paddingVertical: 2,
+                  backgroundColor: isDark ? 'rgba(124,58,237,0.15)' : T.primaryBg,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(124,58,237,0.3)' : T.primaryBorder,
+                }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: T.primary, fontSize: 10 }}>este mes</Text>
+                </View>
               </View>
-              {topCats.map((item, i) => (
-                <View key={item.cat} style={{ marginBottom: i < topCats.length - 1 ? 10 : 0 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                    <Text style={{ fontSize: 20, marginRight: 8 }}>{catEmoji(item.cat)}</Text>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                        <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 13 }}>
-                          {catLabel(item.cat)}
-                        </Text>
-                        <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 13 }}>
-                          {formatMoney(item.total, profile.monedaPrincipal)}
-                        </Text>
+
+              {topCats.map((item, i) => {
+                const barColors = isDark
+                  ? ['#7C3AED', '#00D4FF', '#4DF2B1']
+                  : [T.primary, T.secondary, T.tertiary];
+                return (
+                  <View key={item.cat} style={{
+                    marginBottom: i < topCats.length - 1 ? 12 : 0,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'transparent',
+                    borderRadius: isDark ? 12 : 0,
+                    padding: isDark ? 8 : 0,
+                    borderWidth: isDark ? 1 : 0,
+                    borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'transparent',
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                      <View style={{
+                        width: 36, height: 36, borderRadius: 10,
+                        backgroundColor: isDark ? `${barColors[i]}22` : T.primaryBg,
+                        borderWidth: 1, borderColor: isDark ? `${barColors[i]}33` : T.glassBorder,
+                        alignItems: 'center', justifyContent: 'center', marginRight: 10,
+                      }}>
+                        <Text style={{ fontSize: 18 }}>{catEmoji(item.cat)}</Text>
                       </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11 }}>
-                          {item.count} {item.count === 1 ? 'transacción' : 'transacciones'}
-                        </Text>
-                        <Text style={{ fontFamily: Font.manrope600, color: T.primary, fontSize: 11 }}>
-                          {item.pct}%
-                        </Text>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                          <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 13 }}>
+                            {catLabel(item.cat)}
+                          </Text>
+                          <Text style={{ fontFamily: Font.jakarta700, color: isDark ? barColors[i] : T.textPrimary, fontSize: 13 }}>
+                            {formatMoney(item.total, profile.monedaPrincipal)}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 1 }}>
+                          <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 10 }}>
+                            {item.count} {item.count === 1 ? 'transacción' : 'transacciones'}
+                          </Text>
+                          <Text style={{ fontFamily: Font.manrope600, color: barColors[i], fontSize: 10 }}>
+                            {item.pct}%
+                          </Text>
+                        </View>
                       </View>
                     </View>
+                    {/* Barra de progreso con glow */}
+                    <View style={{ height: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : T.surface, borderRadius: 2, overflow: 'hidden' }}>
+                      <View style={{
+                        width: `${item.pct}%`, height: '100%',
+                        backgroundColor: barColors[i],
+                        borderRadius: 2,
+                        ...(isDark ? {
+                          shadowColor: barColors[i],
+                          shadowOffset: { width: 0, height: 0 },
+                          shadowOpacity: 1,
+                          shadowRadius: 4,
+                        } : {}),
+                      }} />
+                    </View>
                   </View>
-                  <View style={{ height: 4, backgroundColor: T.surface, borderRadius: 2, overflow: 'hidden' }}>
-                    <View style={{ width: `${item.pct}%`, height: '100%', backgroundColor: i === 0 ? T.primary : i === 1 ? T.secondary : T.tertiary, borderRadius: 2 }} />
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 
           {/* ── MISIONES ── */}
           <View
             style={{
-              backgroundColor: T.card,
+              backgroundColor: isDark ? T.cardElevated : T.card,
               borderRadius: 18,
               borderWidth: 1,
-              borderColor: T.glassBorder,
+              borderColor: isDark ? 'rgba(124,58,237,0.2)' : T.glassBorder,
               padding: 14,
+              ...(isDark ? {
+                shadowColor: '#7C3AED',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 16,
+                elevation: 8,
+              } : {}),
             }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <GradientView
+                colors={isDark ? ['#FF5E7D', '#C8003A'] : [T.primary, T.primary]}
+                style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 8 }}>
+                <Text style={{ fontSize: 13 }}>🎯</Text>
+              </GradientView>
               <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 14, flex: 1 }}>
-                🎯 Misiones
+                Misiones
               </Text>
-              {pendingMissions.length > 0 && (
-                <View style={{ backgroundColor: T.primary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
-                  <Text style={{ fontFamily: Font.jakarta700, color: '#fff', fontSize: 11 }}>
-                    {pendingMissions.length} disponible{pendingMissions.length !== 1 ? 's' : ''}
+              {pendingMissions.length + pendingJarvisSteps.length > 0 && (
+                <GradientView
+                  colors={isDark ? ['#7C3AED', '#5B21B6'] : [T.primary, T.primary]}
+                  style={{ borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3 }}>
+                  <Text style={{ fontFamily: Font.jakarta700, color: '#fff', fontSize: 10 }}>
+                    {pendingMissions.length + pendingJarvisSteps.length} disp.
                   </Text>
-                </View>
+                </GradientView>
               )}
             </View>
+
+            {pendingJarvisSteps.map((step, ji) => (
+              <View
+                key={step.id}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  backgroundColor: isDark ? 'rgba(0,212,255,0.08)' : T.primaryBg,
+                  borderRadius: 12,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  marginBottom: ji < pendingJarvisSteps.length - 1 ? 8 : 0,
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(0,212,255,0.28)' : T.primaryBorder,
+                }}>
+                <View style={{
+                  width: 38, height: 38, borderRadius: 11,
+                  backgroundColor: isDark ? `${step.from}28` : T.cardElevated,
+                  borderWidth: 1,
+                  borderColor: `${step.from}55`,
+                  alignItems: 'center', justifyContent: 'center', marginRight: 10,
+                }}>
+                  <Text style={{ fontSize: 18 }}>{step.icon}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={{ fontFamily: Font.jakarta600, color: T.textPrimary, fontSize: 13, flexShrink: 1 }} numberOfLines={2}>
+                      {step.titulo}
+                    </Text>
+                    <View style={{
+                      paddingHorizontal: 6, paddingVertical: 1,
+                      backgroundColor: isDark ? 'rgba(0,212,255,0.15)' : T.cardElevated,
+                      borderRadius: 6,
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(0,212,255,0.35)' : T.glassBorder,
+                    }}>
+                      <Text style={{ fontFamily: Font.manrope600, color: isDark ? '#00D4FF' : T.primary, fontSize: 9 }}>GUÍA</Text>
+                    </View>
+                  </View>
+                  <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11, marginBottom: 8 }} numberOfLines={3}>
+                    {step.detalle}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Pressable onPress={() => void skipJarvisStep(step.id)} hitSlop={6}>
+                      <Text style={{ fontFamily: Font.manrope500, color: T.textMuted, fontSize: 11 }}>Omitir</Text>
+                    </Pressable>
+                    <Pressable onPress={() => onJarvisStepCta(step)} style={{ flex: 1, minWidth: 0 }}>
+                      <GradientView
+                        colors={[step.from, step.to]}
+                        style={{ borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, alignItems: 'center' }}>
+                        <Text style={{ fontFamily: Font.jakarta700, color: '#fff', fontSize: 12 }} numberOfLines={1}>
+                          {step.ctaIcon} {step.cta}
+                        </Text>
+                      </GradientView>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            ))}
+
+            {pendingJarvisSteps.length > 0 && (
+              <View style={{ marginTop: 8, marginBottom: 10 }}>
+                <View style={{ height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : T.surface, marginBottom: 8 }} />
+                <Text style={{ fontFamily: Font.manrope600, color: T.textMuted, fontSize: 10, letterSpacing: 0.5 }}>
+                  Misiones y desafíos
+                </Text>
+              </View>
+            )}
 
             {(availableMissions.length > 0 ? availableMissions : [
               { id: 'p1', titulo: 'Descubrí tus tendencias', descripcion: 'Registrá 3 gastos este mes', xpRecompensa: 25, progreso: 0, meta: 3, completada: false },
@@ -599,33 +870,70 @@ export default function HomeScreen() {
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    backgroundColor: isPlaceholder ? T.cardElevated : T.primaryBg,
+                    backgroundColor: isPlaceholder
+                      ? isDark ? 'rgba(255,255,255,0.03)' : T.cardElevated
+                      : isDark ? 'rgba(124,58,237,0.1)' : T.primaryBg,
                     borderRadius: 12,
                     paddingVertical: 10,
                     paddingHorizontal: 12,
                     marginBottom: i < arr.length - 1 ? 8 : 0,
                     borderWidth: 1,
-                    borderColor: isPlaceholder ? T.glassBorder : T.primaryBorder,
-                    opacity: isPlaceholder ? 0.6 : 1,
+                    borderColor: isPlaceholder
+                      ? isDark ? 'rgba(255,255,255,0.06)' : T.glassBorder
+                      : isDark ? 'rgba(124,58,237,0.3)' : T.primaryBorder,
+                    opacity: isPlaceholder ? 0.55 : 1,
                   }}>
-                  <Text style={{ fontSize: 22, marginRight: 10 }}>
-                    {m.completada ? '✅' : isPlaceholder ? (i === 1 ? '🏦' : '🤖') : '📊'}
-                  </Text>
+                  {/* Icon container */}
+                  <View style={{
+                    width: 38, height: 38, borderRadius: 11,
+                    backgroundColor: isDark
+                      ? isPlaceholder ? 'rgba(255,255,255,0.05)' : 'rgba(124,58,237,0.2)'
+                      : T.cardElevated,
+                    borderWidth: 1,
+                    borderColor: isDark
+                      ? isPlaceholder ? 'rgba(255,255,255,0.08)' : 'rgba(124,58,237,0.4)'
+                      : T.glassBorder,
+                    alignItems: 'center', justifyContent: 'center', marginRight: 10,
+                  }}>
+                    <Text style={{ fontSize: 18 }}>
+                      {m.completada ? '✅' : isPlaceholder ? (i === 1 ? '🏦' : '🤖') : '📊'}
+                    </Text>
+                  </View>
+
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Text style={{ fontFamily: Font.jakarta600, color: isPlaceholder ? T.textMuted : T.textPrimary, fontSize: 13 }} numberOfLines={1}>
                         {m.titulo}
                       </Text>
-                      <Text style={{ fontFamily: Font.jakarta700, color: isPlaceholder ? T.textMuted : T.primary, fontSize: 11, marginLeft: 6 }}>
-                        +{m.xpRecompensa} XP
-                      </Text>
+                      {/* XP badge con glow en dark */}
+                      <View style={{
+                        marginLeft: 6, paddingHorizontal: 6, paddingVertical: 2,
+                        backgroundColor: isDark
+                          ? isPlaceholder ? 'rgba(255,255,255,0.05)' : 'rgba(124,58,237,0.25)'
+                          : T.primaryBg,
+                        borderRadius: 6, borderWidth: 1,
+                        borderColor: isDark
+                          ? isPlaceholder ? 'transparent' : 'rgba(124,58,237,0.5)'
+                          : T.primaryBorder,
+                      }}>
+                        <Text style={{
+                          fontFamily: Font.jakarta700,
+                          color: isPlaceholder ? T.textMuted : isDark ? '#9D5FF0' : T.primary,
+                          fontSize: 10,
+                        }}>
+                          +{m.xpRecompensa} XP
+                        </Text>
+                      </View>
                     </View>
-                    <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>
+                    <Text style={{ fontFamily: Font.manrope400, color: T.textMuted, fontSize: 11, marginTop: 2 }} numberOfLines={1}>
                       {m.descripcion}
                     </Text>
                     {!isPlaceholder && (
-                      <View style={{ height: 3, backgroundColor: T.surface, borderRadius: 2, overflow: 'hidden', marginTop: 5 }}>
-                        <View style={{ width: `${pct}%`, height: '100%', backgroundColor: T.primary, borderRadius: 2 }} />
+                      <View style={{ height: 3, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : T.surface, borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
+                        <GradientView
+                          colors={isDark ? ['#7C3AED', '#9D5FF0'] : [T.primary, T.primaryLight]}
+                          style={{ width: `${Math.max(pct, 5)}%` as any, height: '100%', borderRadius: 2 }}
+                        />
                       </View>
                     )}
                   </View>
