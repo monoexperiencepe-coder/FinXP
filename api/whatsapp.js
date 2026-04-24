@@ -1,6 +1,8 @@
 /**
  * Webhook WhatsApp (Meta) — Fase 1: verificación GET + POST esqueleto.
  * No modifica api/chat.js.
+ *
+ * Vercel: VERIFY_TOKEN (GET verify), WHATSAPP_TOKEN y PHONE_NUMBER_ID (Meta Graph; fases posteriores).
  */
 
 function getQueryParam(query, key) {
@@ -72,9 +74,9 @@ module.exports = async function handler(req, res) {
     const verifyToken = getQueryParam(req.query, 'hub.verify_token');
     const challenge = getQueryParam(req.query, 'hub.challenge');
 
-    const expected = process.env.WHATSAPP_VERIFY_TOKEN;
+    const expected = process.env.VERIFY_TOKEN;
     if (expected == null || expected === '') {
-      console.warn('[whatsapp] GET: falta WHATSAPP_VERIFY_TOKEN en entorno');
+      console.warn('[whatsapp] GET: falta VERIFY_TOKEN en entorno');
       return res.status(403).end();
     }
 
@@ -89,6 +91,9 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
+    void process.env.WHATSAPP_TOKEN;
+    void process.env.PHONE_NUMBER_ID;
+
     const body = parseJsonBody(req);
     safeLogWebhookBody(body);
 
