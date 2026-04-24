@@ -64,15 +64,18 @@ const purpleShadow = {
 } as const;
 
 function IaBadge() {
+  const { T } = useTheme();
   return (
     <View
       style={{
         borderRadius: 4,
         paddingHorizontal: 6,
         paddingVertical: 2,
-        backgroundColor: onPrimaryGradient.iconGlass,
+        backgroundColor: T.primaryBg,
+        borderWidth: 1,
+        borderColor: T.primaryBorder,
       }}>
-      <Text style={{ fontFamily: Font.manrope600, color: onPrimaryGradient.text, fontSize: 9 }}>IA</Text>
+      <Text style={{ fontFamily: Font.manrope600, color: T.primary, fontSize: 9 }}>IA</Text>
     </View>
   );
 }
@@ -592,30 +595,6 @@ export default function ResumenScreen() {
             </View>
           )}
 
-          <GradientView
-            colors={T.primaryGrad}
-            style={{
-              marginTop: 20,
-              borderRadius: 16,
-              padding: 16,
-              shadowColor: T.shadowPrimary,
-              ...purpleShadow,
-            }}>
-            <Text style={{ fontFamily: Font.jakarta700, color: onPrimaryGradient.text, fontSize: 16 }}>
-              ✨ Asesor Financiero IA AhorraYA
-            </Text>
-            <View style={{ marginTop: 14, gap: 14 }}>
-              {insights.map((text, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-                  <IaBadge />
-                  <Text style={{ flex: 1, fontFamily: Font.manrope400, color: onPrimaryGradient.text, fontSize: 14, lineHeight: 20 }}>
-                    {text}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </GradientView>
-
           <View
             style={{
               marginTop: 20,
@@ -839,6 +818,42 @@ export default function ResumenScreen() {
                 </View>
               ))
             )}
+          </View>
+
+          <View
+            style={{
+              marginTop: 28,
+              borderRadius: 14,
+              padding: 14,
+              backgroundColor: T.card,
+              borderWidth: 1,
+              borderColor: T.glassBorder,
+              shadowColor: T.shadowCard,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.25,
+              shadowRadius: 10,
+              elevation: 3,
+            }}>
+            <Text style={{ fontFamily: Font.jakarta600, color: T.textMuted, fontSize: 12 }}>
+              Asesor IA · AhorraYA
+            </Text>
+            <View style={{ marginTop: 10, gap: 10 }}>
+              {insights.map((text, i) => (
+                <View key={i} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                  <IaBadge />
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontFamily: Font.manrope400,
+                      color: T.textSecondary,
+                      fontSize: 13,
+                      lineHeight: 18,
+                    }}>
+                    {text}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
         </ScrollView>
       </View>

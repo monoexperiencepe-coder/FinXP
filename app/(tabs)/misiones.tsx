@@ -7,6 +7,7 @@ import { modalOverlayScrim, onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
 import { formatMoney } from '@/lib/currency';
+import { currentYearMonth } from '@/lib/dates';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
 const cardShadow = {
@@ -33,7 +34,7 @@ export default function MisionesScreen() {
 
   const [metaInfoOpen, setMetaInfoOpen] = useState(false);
 
-  const mesActual = new Date().toISOString().slice(0, 7);
+  const mesActual = currentYearMonth();
   const gastadoMes = useMemo(
     () => expenses.filter((e) => e.mes === mesActual).reduce((sum, e) => sum + e.importe, 0),
     [expenses, mesActual],

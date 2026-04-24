@@ -1,5 +1,4 @@
 import 'react-native-gesture-handler';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Manrope_400Regular,
   Manrope_500Medium,
@@ -23,6 +22,13 @@ import '../global.css';
 
 import { AppPreloader } from '@/components/AppPreloader';
 import { darkTheme, lightTheme } from '@/constants/theme';
+import {
+  clearLastLogin,
+  readDarkModeCache,
+  readLastLoginMs,
+  readOnboardingLocal,
+  readOnboardingRemoteAndSync,
+} from '@/lib/preferences';
 import { supabase } from '@/lib/supabase';
 import { useAppShellStore } from '@/store/useAppShellStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -83,12 +89,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     void (async () => {
-      const savedMode = await AsyncStorage.getItem('ahorraya_dark_mode');
-      if (savedMode === 'true') {
-        useFinanceStore.setState({ theme: 'dark' });
-      } else if (savedMode === 'false') {
-        useFinanceStore.setState({ theme: 'light' });
-      }
+      const cached = await readDarkModeCache();
+      if (cached) useFinanceStore.setState({ theme: cached });
     })();
   }, []);
 
@@ -96,12 +98,12 @@ export default function RootLayout() {
     const initAuth = async () => {
       await useAuthStore.getState().initialize();
 
-      const lastLogin = await AsyncStorage.getItem('ahorraya_last_login');
+      const lastLogin = await readLastLoginMs();
       if (lastLogin) {
-        const daysSinceLogin = (Date.now() - parseInt(lastLogin, 10)) / (1000 * 60 * 60 * 24);
+        const daysSinceLogin = (Date.now() - lastLogin) / (1000 * 60 * 60 * 24);
         if (daysSinceLogin > 15) {
           await supabase.auth.signOut();
-          await AsyncStorage.removeItem('ahorraya_last_login');
+          await clearLastLogin();
         }
       }
     };
@@ -124,50 +126,24 @@ export default function RootLayout() {
         if (postLoginTransitionPending) {
           return;
         }
-        // Verificar onboarding en AsyncStorage primero (rápido)
-        const localDone = await AsyncStorage.getItem('ahorraya_onboarding_done');
-        if (localDone) {
+        if (await readOnboardingLocal()) {
           router.replace('/(tabs)' as any);
           return;
         }
-        // Verificar en Supabase (fuente de verdad)
-        try {
-          const { data } = await supabase
-            .from('user_profiles')
-            .select('onboarding_done')
-            .eq('id', session.user.id)
-            .single();
-
-          if (data?.onboarding_done) {
-            await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
-            router.replace('/(tabs)' as any);
-          } else {
-            router.replace('/onboarding' as any);
-          }
-        } catch {
+        const remote = await readOnboardingRemoteAndSync(session.user.id);
+        if (remote === true) {
+          router.replace('/(tabs)' as any);
+        } else {
           router.replace('/onboarding' as any);
         }
         return;
       }
 
       if (session && !inOnboarding && !inAuthGroup) {
-        const localDone = await AsyncStorage.getItem('ahorraya_onboarding_done');
-        if (!localDone) {
-          try {
-            const { data } = await supabase
-              .from('user_profiles')
-              .select('onboarding_done')
-              .eq('id', session.user.id)
-              .single();
-
-            if (data?.onboarding_done) {
-              await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
-            } else {
-              router.replace('/onboarding' as any);
-            }
-          } catch {
-            // Si falla la consulta, no redirigir
-          }
+        if (!(await readOnboardingLocal())) {
+          const remote = await readOnboardingRemoteAndSync(session.user.id);
+          if (remote === false) router.replace('/onboarding' as any);
+          // si remote === null (fallo de red), no redirigir
         }
       }
     };

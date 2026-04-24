@@ -22,6 +22,7 @@ import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import * as db from '@/lib/database';
 import { createId } from '@/lib/ids';
+import { markOnboardingComplete, writeDarkModeCache } from '@/lib/preferences';
 import { markPremiumTeaserOnboardingComplete } from '@/lib/premiumTeaserSchedule';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
@@ -518,7 +519,7 @@ export default function OnboardingScreen() {
       });
 
       useFinanceStore.setState({ theme: themeMode });
-      void AsyncStorage.setItem('ahorraya_dark_mode', themeMode === 'dark' ? 'true' : 'false');
+      void writeDarkModeCache(themeMode);
 
       await loadFromSupabase();
 
@@ -557,7 +558,7 @@ export default function OnboardingScreen() {
         }
       } catch (e) { console.error('Error bloque ingresos:', e); }
 
-      await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
+      await markOnboardingComplete(uid);
       void markPremiumTeaserOnboardingComplete();
       useFinanceStore.setState({ categories: [], incomeCategories: [] });
       const { loadFromSupabase: sync, loadCategories, loadIncomeCategories } = useFinanceStore.getState();
@@ -570,7 +571,7 @@ export default function OnboardingScreen() {
     } catch (e) {
       console.error('Error in handleFinish:', e);
       setFinishing(false);
-      await AsyncStorage.setItem('ahorraya_onboarding_done', 'true');
+      await markOnboardingComplete(user?.id ?? null);
       void markPremiumTeaserOnboardingComplete();
       router.replace('/(tabs)/perfil' as any);
     }

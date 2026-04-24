@@ -1,15 +1,22 @@
 import type { MonedaCode } from '@/types';
 
-/** `tipoDeCambio` = PEN por 1 USD (p. ej. 3.75). */
+/** `tipoDeCambio` = PEN por 1 USD (p. ej. 3.75). Fallback seguro si `rate` no es positivo/finito. */
+const SAFE_PEN_PER_USD = 3.75;
+
 export function convertAmount(
   amount: number,
   from: MonedaCode,
   to: MonedaCode,
   tipoDeCambioPENperUSD: number,
 ): number {
+  if (!Number.isFinite(amount)) return 0;
   if (from === to) return amount;
-  if (from === 'PEN' && to === 'USD') return amount / tipoDeCambioPENperUSD;
-  if (from === 'USD' && to === 'PEN') return amount * tipoDeCambioPENperUSD;
+  const rate =
+    Number.isFinite(tipoDeCambioPENperUSD) && tipoDeCambioPENperUSD > 0
+      ? tipoDeCambioPENperUSD
+      : SAFE_PEN_PER_USD;
+  if (from === 'PEN' && to === 'USD') return amount / rate;
+  if (from === 'USD' && to === 'PEN') return amount * rate;
   return amount;
 }
 

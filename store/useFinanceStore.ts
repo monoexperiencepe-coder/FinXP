@@ -13,6 +13,8 @@ import {
   currentYearMonth,
   toDateKey,
 } from '@/lib/dates';
+import { convertAmount } from '@/lib/currency';
+import { writeDarkModeCache } from '@/lib/preferences';
 import { applyXpToProfile } from '@/lib/xp';
 import { useAuthStore } from '@/store/useAuthStore';
 import {
@@ -35,335 +37,45 @@ const XP_REGISTRAR_GASTO = 10;
 const XP_REGISTRAR_INGRESO = 20;
 
 const defaultProfile: UserProfile = {
-  id: 'u1',
-  nombreUsuario: 'Rubén',
-  nivel: 4,
-  xpActual: 320,
+  id: '',
+  nombreUsuario: '',
+  nivel: 1,
+  xpActual: 0,
   xpParaSiguienteNivel: 500,
-  rachaActual: 5,
-  rachaMaxima: 12,
-  ultimoRegistro: toDateKey(new Date()),
+  rachaActual: 0,
+  rachaMaxima: 0,
+  ultimoRegistro: undefined,
   totalGastadoSemana: 0,
   totalGastadoMes: 0,
   monedaPrincipal: 'PEN',
   tipoDeCambio: 3.75,
-  misionesCompletadas: 2,
+  misionesCompletadas: 0,
+  metaMensual: 0,
   metodosDePago: DEFAULT_METODOS_DE_PAGO,
   bancosDisponibles: [...DEFAULT_BANCOS_DISPONIBLES],
 };
 
-function mockExpenses(now: Date): Expense[] {
-  const ym = currentYearMonth(now);
-  const iso = (ymKey: string, day: number) =>
-    `${ymKey}-${String(day).padStart(2, '0')}T12:00:00.000Z`;
-  const current: Expense[] = [
-    {
-      id: 'e1',
-      fecha: iso(ym, 3),
-      cuenta: 'Principal',
-      medioDePago: 'Tarjeta',
-      banco: 'Interbank',
-      categoria: 'delivery',
-      comercio: 'Rappi',
-      esEsencial: false,
-      estadoDeAnimo: 'ANSIOSO',
-      moneda: 'PEN',
-      descripcion: 'Cena tarde',
-      importe: 48.9,
-      mes: ym,
-      xpGanado: 10,
-    },
-    {
-      id: 'e2',
-      fecha: iso(ym, 5),
-      cuenta: 'Principal',
-      medioDePago: 'Efectivo',
-      banco: '',
-      categoria: 'supermercado',
-      comercio: 'Wong',
-      esEsencial: true,
-      estadoDeAnimo: 'NEUTRAL',
-      moneda: 'PEN',
-      descripcion: 'Compra semanal',
-      importe: 312.4,
-      mes: ym,
-      xpGanado: 10,
-    },
-    {
-      id: 'e3',
-      fecha: iso(ym, 6),
-      cuenta: 'Principal',
-      medioDePago: 'Tarjeta',
-      banco: 'BBVA',
-      categoria: 'comida-restaurantes',
-      comercio: 'La Mar',
-      esEsencial: false,
-      estadoDeAnimo: 'FELIZ',
-      moneda: 'PEN',
-      descripcion: 'Almuerzo',
-      importe: 185,
-      mes: ym,
-      xpGanado: 10,
-    },
-    {
-      id: 'e4',
-      fecha: iso(ym, 8),
-      cuenta: 'Principal',
-      medioDePago: 'Tarjeta',
-      banco: 'Interbank',
-      categoria: 'movilidad',
-      comercio: 'Uber',
-      esEsencial: true,
-      estadoDeAnimo: 'ESTRESADO',
-      moneda: 'PEN',
-      descripcion: 'Aeropuerto',
-      importe: 64.5,
-      mes: ym,
-      xpGanado: 10,
-    },
-    {
-      id: 'e5',
-      fecha: iso(ym, 9),
-      cuenta: 'Principal',
-      medioDePago: 'Tarjeta',
-      banco: 'Interbank',
-      categoria: 'suscripciones',
-      comercio: 'Spotify',
-      esEsencial: false,
-      estadoDeAnimo: 'CONTENTO',
-      moneda: 'PEN',
-      descripcion: 'Plan familiar',
-      importe: 24.9,
-      mes: ym,
-      xpGanado: 10,
-    },
-  ];
-
-  const past: Expense[] = [];
-  const backfill: Array<{
-    day: number;
-    categoria: string;
-    comercio: string;
-    importe: number;
-    mood: EstadoDeAnimo;
-  }> = [
-    { day: 4, categoria: 'supermercado', comercio: 'Wong', importe: 265, mood: 'NEUTRAL' },
-    { day: 12, categoria: 'movilidad', comercio: 'Uber', importe: 52, mood: 'ESTRESADO' },
-    { day: 20, categoria: 'comida-restaurantes', comercio: 'Cevichería', importe: 95, mood: 'FELIZ' },
-  ];
-  for (let back = 1; back <= 5; back++) {
-    const ymPast = addMonthsToYearMonth(ym, -back);
-    backfill.forEach((row, j) => {
-      past.push({
-        id: `eh-${back}-${j}`,
-        fecha: iso(ymPast, row.day),
-        cuenta: 'Principal',
-        medioDePago: 'Tarjeta',
-        banco: 'Interbank',
-        categoria: row.categoria,
-        comercio: row.comercio,
-        esEsencial: false,
-        estadoDeAnimo: row.mood,
-        moneda: 'PEN',
-        descripcion: 'Mock histórico',
-        importe: Math.round(row.importe * (1 + back * 0.04) * 10) / 10,
-        mes: ymPast,
-        xpGanado: 10,
-      });
-    });
-  }
-
-  return [...current, ...past];
+function sumMonthExpenses(
+  expenses: Expense[],
+  ym: string,
+  display: MonedaCode,
+  rate: number,
+): number {
+  return expenses
+    .filter((e) => e.mes === ym)
+    .reduce((s, e) => s + convertAmount(e.importe, e.moneda, display, rate), 0);
 }
 
-function mockIncomes(ym0: string): Income[] {
-  const out: Income[] = [];
-  for (let i = 0; i < 6; i++) {
-    const ym = addMonthsToYearMonth(ym0, -i);
-    const iso = `${ym}-01T10:00:00.000Z`;
-    out.push({
-      id: `i-sal-${ym}`,
-      fecha: iso,
-      fuente: 'Empresa',
-      tipo: 'Salario',
-      objetivo: 'Gastos fijos',
-      frecuencia: 'Mensual',
-      medioDePago: 'Transferencia',
-      banco: 'Interbank',
-      categoria: 'Salario',
-      moneda: 'PEN',
-      descripcion: 'Pago mensual',
-      importe: 8200 + i * 120,
-      mes: ym,
-    });
-    if (i % 2 === 0) {
-      out.push({
-        id: `i-plat-${ym}`,
-        fecha: `${ym}-14T10:00:00.000Z`,
-        fuente: 'Plataformas',
-        tipo: 'Freelance',
-        objetivo: 'Ahorro',
-        frecuencia: 'Mensual',
-        medioDePago: 'Transferencia',
-        banco: 'Interbank',
-        categoria: 'Freelance',
-        moneda: 'PEN',
-        descripcion: 'Proyectos online',
-        importe: 620 + i * 40,
-        mes: ym,
-      });
-    }
-    if (i % 3 === 0) {
-      out.push({
-        id: `i-cli-${ym}`,
-        fecha: `${ym}-18T10:00:00.000Z`,
-        fuente: 'Cliente',
-        tipo: 'Freelance',
-        objetivo: 'Gastos variables',
-        frecuencia: 'Unico',
-        medioDePago: 'Transferencia',
-        banco: 'BBVA',
-        categoria: 'Servicios',
-        moneda: 'PEN',
-        descripcion: 'Consultoría',
-        importe: 450,
-        mes: ym,
-      });
-    }
-  }
-  return out;
-}
-
-function mockFixed(): FixedExpense[] {
-  return [
-    {
-      id: 'f1',
-      descripcion: 'Alquiler',
-      responsable: 'Titular',
-      moneda: 'PEN',
-      categoria: 'servicios-hogar',
-      montoMensual: 2200,
-    },
-    {
-      id: 'f2',
-      descripcion: 'Internet + luz',
-      responsable: 'Titular',
-      moneda: 'PEN',
-      categoria: 'servicios-hogar',
-      montoMensual: 280,
-    },
-  ];
-}
-
-function mockCards(ym: string): CreditCard[] {
-  return [
-    { id: 'c1', nombre: 'Visa Signature', moneda: 'PEN', lineaTotal: 15000, gastosMes: 4200 },
-    { id: 'c2', nombre: 'Amex Gold', moneda: 'USD', lineaTotal: 5000, gastosMes: 890 },
-  ];
-}
-
-function mockBudgets(ym: string): Budget[] {
-  return EXPENSE_CATEGORIES.slice(0, 8).map((cat, i) => ({
-    categoria: cat.id,
-    limiteMonthly: [800, 1200, 400, 120, 500, 200, 600, 800][i] ?? 300,
-    gastadoActual: 0,
-    moneda: 'PEN' as MonedaCode,
-  }));
-}
-
-function mockMissions(): Mission[] {
-  const exp = new Date();
-  exp.setDate(exp.getDate() + 5);
-  return [
-    {
-      id: 'm1',
-      titulo: 'Sin delivery esta semana',
-      descripcion: 'Evitá pedidos delivery durante 7 días.',
-      xpRecompensa: 50,
-      progreso: 0,
-      meta: 7,
-      completada: false,
-      fechaExpiracion: exp.toISOString(),
-      tipo: 'dias_sin_categoria',
-      categoriaId: 'delivery',
-    },
-    {
-      id: 'm2',
-      titulo: 'Registra 5 días seguidos',
-      descripcion: 'Registrá al menos un gasto durante 5 días consecutivos.',
-      xpRecompensa: 30,
-      progreso: 2,
-      meta: 5,
-      completada: false,
-      fechaExpiracion: exp.toISOString(),
-      tipo: 'racha_registro',
-    },
-    {
-      id: 'm3',
-      titulo: 'Mantén el presupuesto de comida',
-      descripcion: 'No superes S/ 500 en comida y restaurantes este mes.',
-      xpRecompensa: 40,
-      progreso: 0,
-      meta: 500,
-      completada: false,
-      fechaExpiracion: exp.toISOString(),
-      tipo: 'presupuesto_categoria',
-      categoriaId: 'comida-restaurantes',
-    },
-    {
-      id: 'm4',
-      titulo: 'Registra tu primer ingreso',
-      descripcion: 'Sumá al menos un ingreso en AhorraYA.',
-      xpRecompensa: 20,
-      progreso: 0,
-      meta: 1,
-      completada: false,
-      fechaExpiracion: exp.toISOString(),
-      tipo: 'primer_ingreso',
-    },
-  ];
-}
-
-function mockAiInsights(): AIInsight[] {
-  const today = new Date().toISOString();
-  return [
-    {
-      id: 'a1',
-      tipo: 'comparacion_semanal',
-      titulo: 'Semana vs semana anterior',
-      descripcion: 'Gastaste ~12% menos que la semana pasada en la misma franja.',
-      fecha: today,
-      leido: false,
-    },
-    {
-      id: 'a2',
-      tipo: 'categoria_crecimiento',
-      titulo: 'Delivery en alza',
-      descripcion: 'Delivery subió 18% vs el mes anterior: conviene revisar hábitos.',
-      fecha: today,
-      leido: false,
-      accionSugerida: 'Ver presupuesto de delivery',
-    },
-    {
-      id: 'a3',
-      tipo: 'proyeccion_presupuesto',
-      titulo: 'Proyección de supermercado',
-      descripcion: 'A este ritmo, en ~9 días podrías alcanzar tu límite de supermercado.',
-      fecha: today,
-      leido: true,
-    },
-  ];
-}
-
-function sumMonthExpenses(expenses: Expense[], ym: string): number {
-  return expenses.filter((e) => e.mes === ym).reduce((s, e) => s + e.importe, 0);
-}
-
-function sumWeekExpenses(expenses: Expense[], refDate = new Date()): number {
+function sumWeekExpenses(
+  expenses: Expense[],
+  display: MonedaCode,
+  rate: number,
+  refDate = new Date(),
+): number {
   const week = currentWeekKey(refDate);
   return expenses
     .filter((e) => currentWeekKey(new Date(e.fecha)) === week)
-    .reduce((s, e) => s + e.importe, 0);
+    .reduce((s, e) => s + convertAmount(e.importe, e.moneda, display, rate), 0);
 }
 
 function bumpRacha(ultimo: string | undefined, prev: number): { rachaActual: number; ultimoRegistro: string } {
@@ -375,13 +87,23 @@ function bumpRacha(ultimo: string | undefined, prev: number): { rachaActual: num
   return { rachaActual: 1, ultimoRegistro: today };
 }
 
-function withBudgetsGastado(expenses: Expense[], budgets: Budget[], ym: string): Budget[] {
+function withBudgetsGastado(
+  expenses: Expense[],
+  budgets: Budget[],
+  ym: string,
+  display: MonedaCode,
+  rate: number,
+): Budget[] {
   const byCat: Record<string, number> = {};
   for (const e of expenses) {
     if (e.mes !== ym) continue;
-    byCat[e.categoria] = (byCat[e.categoria] ?? 0) + e.importe;
+    const v = convertAmount(e.importe, e.moneda, display, rate);
+    byCat[e.categoria] = (byCat[e.categoria] ?? 0) + v;
   }
-  return budgets.map((b) => ({ ...b, gastadoActual: byCat[b.categoria] ?? 0 }));
+  return budgets.map((b) => ({
+    ...b,
+    gastadoActual: convertAmount(byCat[b.categoria] ?? 0, display, b.moneda, rate),
+  }));
 }
 
 export type MonthCategoryRow = {
@@ -469,6 +191,7 @@ type FinanceState = {
     estadoDeAnimo: EstadoDeAnimo | null;
     descripcion?: string;
     comercio?: string;
+    esEsencial?: boolean;
     fecha?: string;
     medioDePago?: string;
     banco?: string;
@@ -487,8 +210,6 @@ type FinanceState = {
     descripcion?: string;
   }) => Promise<void>;
 };
-
-const initialYm = currentYearMonth();
 
 const seedState = (): Omit<
   FinanceState,
@@ -531,29 +252,19 @@ const seedState = (): Omit<
   | 'addExpenseToSupabase'
   | 'addIncomeToSupabase'
 > => {
-  const expenses = mockExpenses(new Date());
-  let budgets = mockBudgets(initialYm);
-  budgets = withBudgetsGastado(expenses, budgets, initialYm);
-  const week = sumWeekExpenses(expenses);
-  const month = sumMonthExpenses(expenses, initialYm);
-  const monthBudgetSum = budgets.reduce((s, b) => s + b.limiteMonthly, 0);
   return {
     profile: {
       ...defaultProfile,
-      totalGastadoSemana: week,
-      totalGastadoMes: month,
-      rachaMaxima: Math.max(defaultProfile.rachaMaxima, defaultProfile.rachaActual),
-      metaMensual: monthBudgetSum,
       metodosDePago: defaultProfile.metodosDePago ?? DEFAULT_METODOS_DE_PAGO,
     },
-    expenses,
-    incomes: mockIncomes(initialYm),
-    fixedExpenses: mockFixed(),
-    creditCards: mockCards(initialYm),
-    budgets,
-    missions: mockMissions(),
-    aiInsights: mockAiInsights(),
-    onboardingCompleted: true,
+    expenses: [],
+    incomes: [],
+    fixedExpenses: [],
+    creditCards: [],
+    budgets: [],
+    missions: [],
+    aiInsights: [],
+    onboardingCompleted: false,
   };
 };
 
@@ -570,7 +281,7 @@ export const useFinanceStore = create<FinanceState>()(
 
       setTheme: (mode) => {
         set({ theme: mode });
-        void AsyncStorage.setItem('ahorraya_dark_mode', mode === 'dark' ? 'true' : 'false');
+        void writeDarkModeCache(mode);
         void (async () => {
           const userId = useAuthStore.getState().user?.id;
           if (!userId) return;
@@ -599,18 +310,64 @@ export const useFinanceStore = create<FinanceState>()(
       },
 
       setMonedaPrincipal: (moneda) => {
-        set((s) => ({
-          profile: { ...s.profile, monedaPrincipal: moneda },
-          budgets: s.budgets.map((b) => ({ ...b, moneda })),
-        }));
+        set((s) => {
+          const rate = s.profile.tipoDeCambio;
+          if (s.profile.monedaPrincipal === moneda) {
+            return { profile: { ...s.profile, monedaPrincipal: moneda } };
+          }
+          const budgets = s.budgets.map((b) => ({
+            ...b,
+            limiteMonthly: convertAmount(b.limiteMonthly, b.moneda, moneda, rate),
+            gastadoActual: convertAmount(b.gastadoActual, b.moneda, moneda, rate),
+            moneda,
+          }));
+          const fixedExpenses = s.fixedExpenses.map((f) => ({
+            ...f,
+            montoMensual: convertAmount(f.montoMensual, f.moneda, moneda, rate),
+            moneda,
+          }));
+          const creditCards = s.creditCards.map((c) => ({
+            ...c,
+            lineaTotal: convertAmount(c.lineaTotal, c.moneda, moneda, rate),
+            gastosMes: convertAmount(c.gastosMes, c.moneda, moneda, rate),
+            moneda,
+          }));
+          const metaMensual = s.profile.metaMensual != null
+            ? convertAmount(s.profile.metaMensual, s.profile.monedaPrincipal, moneda, rate)
+            : s.profile.metaMensual;
+          return {
+            profile: { ...s.profile, monedaPrincipal: moneda, metaMensual },
+            budgets,
+            fixedExpenses,
+            creditCards,
+          };
+        });
+        void (async () => {
+          const userId = useAuthStore.getState().user?.id;
+          if (!userId) return;
+          try {
+            await db.updateProfile(userId, { moneda_principal: moneda });
+          } catch (e) {
+            console.error('Error guardando moneda principal:', e);
+          }
+        })();
       },
 
       setTipoDeCambio: (tipoDeCambio) => {
         const n = Number(tipoDeCambio);
-        if (Number.isNaN(n) || n <= 0) return;
+        if (!Number.isFinite(n) || n <= 0) return;
         set((s) => ({
           profile: { ...s.profile, tipoDeCambio: n },
         }));
+        void (async () => {
+          const userId = useAuthStore.getState().user?.id;
+          if (!userId) return;
+          try {
+            await db.updateProfile(userId, { tipo_de_cambio: n });
+          } catch (e) {
+            console.error('Error guardando tipo de cambio:', e);
+          }
+        })();
       },
 
       updateMonthlyGoal: (amount) => {
@@ -740,32 +497,48 @@ export const useFinanceStore = create<FinanceState>()(
       setBudgetCategoryLimit: (categoriaId, limiteMonthly) => {
         const { budgets, expenses, profile } = get();
         const ym = currentYearMonth();
-        const limite = Math.max(0, limiteMonthly);
-        const byCat: Record<string, number> = {};
+        const limite = Math.max(0, Number.isFinite(limiteMonthly) ? limiteMonthly : 0);
+        const display = profile.monedaPrincipal;
+        const rate = profile.tipoDeCambio;
+        const byCatDisplay: Record<string, number> = {};
         for (const e of expenses) {
           if (e.mes !== ym) continue;
-          byCat[e.categoria] = (byCat[e.categoria] ?? 0) + e.importe;
+          byCatDisplay[e.categoria] =
+            (byCatDisplay[e.categoria] ?? 0) + convertAmount(e.importe, e.moneda, display, rate);
         }
         const idx = budgets.findIndex((b) => b.categoria === categoriaId);
         if (idx >= 0) {
           set({
-            budgets: budgets.map((b, i) =>
-              i === idx ? { ...b, limiteMonthly: limite, gastadoActual: byCat[categoriaId] ?? b.gastadoActual } : b,
-            ),
+            budgets: budgets.map((b, i) => {
+              if (i !== idx) return b;
+              const gastadoDisplay = byCatDisplay[categoriaId] ?? 0;
+              const gastadoActual = convertAmount(gastadoDisplay, display, b.moneda, rate);
+              return { ...b, limiteMonthly: limite, gastadoActual };
+            }),
           });
         } else {
+          const gastadoDisplay = byCatDisplay[categoriaId] ?? 0;
           set({
             budgets: [
               ...budgets,
               {
                 categoria: categoriaId,
                 limiteMonthly: limite,
-                gastadoActual: byCat[categoriaId] ?? 0,
-                moneda: profile.monedaPrincipal,
+                gastadoActual: gastadoDisplay,
+                moneda: display,
               },
             ],
           });
         }
+        void (async () => {
+          const userId = useAuthStore.getState().user?.id;
+          if (!userId) return;
+          try {
+            await db.upsertBudget(userId, categoriaId, limite, ym);
+          } catch (e) {
+            console.error('Error guardando presupuesto:', e);
+          }
+        })();
       },
 
       addQuickExpense: ({
@@ -810,8 +583,10 @@ export const useFinanceStore = create<FinanceState>()(
           xpParaSiguienteNivel: profile.xpParaSiguienteNivel,
           gain: XP_REGISTRAR_GASTO,
         });
+        const display = profile.monedaPrincipal;
+        const rate = profile.tipoDeCambio;
         const nextExpenses = [expense, ...expenses];
-        const nextBudgets = withBudgetsGastado(nextExpenses, budgets, ym);
+        const nextBudgets = withBudgetsGastado(nextExpenses, budgets, ym, display, rate);
         set({
           expenses: nextExpenses,
           budgets: nextBudgets,
@@ -820,8 +595,8 @@ export const useFinanceStore = create<FinanceState>()(
             ...streak,
             ...xp,
             rachaMaxima: Math.max(profile.rachaMaxima, streak.rachaActual),
-            totalGastadoSemana: sumWeekExpenses(nextExpenses),
-            totalGastadoMes: sumMonthExpenses(nextExpenses, currentYearMonth()),
+            totalGastadoSemana: sumWeekExpenses(nextExpenses, display, rate),
+            totalGastadoMes: sumMonthExpenses(nextExpenses, currentYearMonth(), display, rate),
           },
         });
       },
@@ -899,7 +674,8 @@ export const useFinanceStore = create<FinanceState>()(
           let budgets = budgetRows.map((r) =>
             db.rowToBudget(r as { categoria: string; limite: number | string }, monedaPrincipal),
           );
-          budgets = withBudgetsGastado(expenses, budgets, mesActual);
+          const rateLoad = Number(profileRow?.tipo_de_cambio ?? prev.profile.tipoDeCambio ?? 3.75);
+          budgets = withBudgetsGastado(expenses, budgets, mesActual, monedaPrincipal, rateLoad);
           const missions = missionRows.map((m) =>
             db.rowToMission(
               m as {
@@ -933,12 +709,12 @@ export const useFinanceStore = create<FinanceState>()(
                 rachaActual: profileRow.racha_actual ?? 0,
                 rachaMaxima: profileRow.racha_maxima ?? 0,
                 ultimoRegistro,
-                totalGastadoSemana: sumWeekExpenses(expenses),
-                totalGastadoMes: sumMonthExpenses(expenses, mesActual),
+                totalGastadoSemana: sumWeekExpenses(expenses, monedaPrincipal, rateLoad),
+                totalGastadoMes: sumMonthExpenses(expenses, mesActual, monedaPrincipal, rateLoad),
                 monedaPrincipal,
                 tipoDeCambio: Number(profileRow.tipo_de_cambio ?? 3.75),
                 misionesCompletadas: profileRow.misiones_completadas ?? 0,
-                metaMensual: budgets.reduce((s, b) => s + b.limiteMonthly, 0) || prev.profile.metaMensual,
+                metaMensual: budgets.reduce((s, b) => s + b.limiteMonthly, 0) || 0,
                 metodosDePago: db.metodosDePagoFromDb(profileRow.metodos_de_pago ?? undefined),
                 bancosDisponibles: profileRow.bancos_disponibles?.length
                   ? profileRow.bancos_disponibles
@@ -1066,6 +842,7 @@ export const useFinanceStore = create<FinanceState>()(
         descripcion,
         estadoDeAnimo,
         comercio,
+        esEsencial,
         fecha,
         medioDePago,
         banco,
@@ -1079,6 +856,7 @@ export const useFinanceStore = create<FinanceState>()(
             descripcion,
             estadoDeAnimo,
             comercio,
+            esEsencial,
             fecha,
             medioDePago,
             banco,
@@ -1100,7 +878,7 @@ export const useFinanceStore = create<FinanceState>()(
           comercio:
             comercio?.trim() ||
             (descripcion?.trim() ? descripcion.trim().slice(0, 40) : 'Registro rápido'),
-          esEsencial: false,
+          esEsencial: esEsencial ?? false,
           estadoDeAnimo,
           moneda: moneda ?? profile.monedaPrincipal,
           descripcion: descripcion?.trim() ?? '',
@@ -1124,8 +902,10 @@ export const useFinanceStore = create<FinanceState>()(
           xpParaSiguienteNivel: profile.xpParaSiguienteNivel,
           gain: expense.xpGanado,
         });
+        const display = profile.monedaPrincipal;
+        const rate = profile.tipoDeCambio;
         const nextExpenses = [expense, ...expenses];
-        const nextBudgets = withBudgetsGastado(nextExpenses, budgets, ym);
+        const nextBudgets = withBudgetsGastado(nextExpenses, budgets, ym, display, rate);
         set({
           expenses: nextExpenses,
           budgets: nextBudgets,
@@ -1134,8 +914,8 @@ export const useFinanceStore = create<FinanceState>()(
             ...streak,
             ...xp,
             rachaMaxima: Math.max(profile.rachaMaxima, streak.rachaActual),
-            totalGastadoSemana: sumWeekExpenses(nextExpenses),
-            totalGastadoMes: sumMonthExpenses(nextExpenses, currentYearMonth()),
+            totalGastadoSemana: sumWeekExpenses(nextExpenses, display, rate),
+            totalGastadoMes: sumMonthExpenses(nextExpenses, currentYearMonth(), display, rate),
           },
         });
 
@@ -1241,7 +1021,10 @@ export const useFinanceStore = create<FinanceState>()(
         return { spent, budget };
       },
 
-      getWeekSpent: (refDate = new Date()) => sumWeekExpenses(get().expenses, refDate),
+      getWeekSpent: (refDate = new Date()) => {
+        const { expenses, profile } = get();
+        return sumWeekExpenses(expenses, profile.monedaPrincipal, profile.tipoDeCambio, refDate);
+      },
     }),
     {
       name: 'ahorraya-store-v2',

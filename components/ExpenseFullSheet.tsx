@@ -135,6 +135,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [moneda, setMoneda] = useState<MonedaCode>(profile.monedaPrincipal);
   const [categoria, setCategoria] = useState<string>(categories[0]?.nombre ?? '');
   const [mood, setMood] = useState<EstadoDeAnimo | null>(null);
+  const [esEsencial, setEsEsencial] = useState(false);
 
   const medios = useMemo(() => {
     const list = profile.metodosDePago ?? [];
@@ -182,6 +183,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     setMoneda(profile.monedaPrincipal);
     setCategoria(categories[0]?.nombre ?? '');
     setMood(null);
+    setEsEsencial(false);
     setMedio(medios[0]?.nombre ?? 'Efectivo');
     setBanco(bancosLista[0] ?? 'BCP');
     setNota('');
@@ -259,7 +261,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     try {
       await addExpenseToSupabase({
         categoria, importe: value, estadoDeAnimo: mood,
-        descripcion: nota.trim(), fecha: fechaIso,
+        descripcion: nota.trim(), esEsencial, fecha: fechaIso,
         medioDePago: medio, banco, moneda,
       });
     } catch (e: unknown) {
@@ -661,6 +663,44 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
                 );
               })}
             </ScrollView>
+
+            {/* ─── SECCIÓN: ¿Es esencial? ─── */}
+            <Divider T={T} />
+            <SectionLabel label="¿ES UN GASTO ESENCIAL?" color={T.textMuted} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {([
+                { key: true, label: 'Esencial', emoji: '🔒' },
+                { key: false, label: 'No esencial', emoji: '🎈' },
+              ] as const).map((opt) => {
+                const active = esEsencial === opt.key;
+                return (
+                  <Pressable
+                    key={String(opt.key)}
+                    onPress={() => setEsEsencial(opt.key)}
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      borderWidth: active ? 2 : 1,
+                      borderColor: active ? T.primary : T.glassBorder,
+                      backgroundColor: active ? T.primaryBg : T.card,
+                    }}>
+                    <Text style={{ fontSize: 14 }}>{opt.emoji}</Text>
+                    <Text style={{
+                      fontFamily: Font.manrope600,
+                      fontSize: 12,
+                      color: active ? T.primary : T.textSecondary,
+                    }}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
             {/* ─── SECCIÓN: Nota ─── */}
             <Divider T={T} />

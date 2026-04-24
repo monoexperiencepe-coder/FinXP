@@ -1,7 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 
+import { writeLastLoginNow } from '@/lib/preferences';
 import { supabase } from '@/lib/supabase';
 
 interface AuthState {
@@ -45,7 +45,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      await AsyncStorage.setItem('ahorraya_last_login', Date.now().toString());
+      await writeLastLoginNow();
     } finally {
       set({ loading: false });
     }

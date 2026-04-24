@@ -12,6 +12,7 @@ import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
 import { formatMoney } from '@/lib/currency';
+import { currentYearMonth, toDateKey } from '@/lib/dates';
 import {
   getPendingJarvisSteps,
   loadJarvisSkipped,
@@ -219,8 +220,8 @@ export default function HomeScreen() {
 
   /* ── Derived data ── */
   const initial   = useMemo(() => (profile.nombreUsuario?.trim()?.charAt(0) || 'U').toUpperCase(), [profile.nombreUsuario]);
-  const mesActual = useMemo(() => new Date().toISOString().slice(0, 7), []);
-  const todayKey  = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const mesActual = useMemo(() => currentYearMonth(), []);
+  const todayKey  = useMemo(() => toDateKey(new Date()), []);
 
   const gastadoMes = useMemo(
     () => expenses.filter((e) => e.mes === mesActual).reduce((s, e) => s + e.importe, 0),
@@ -230,7 +231,7 @@ export default function HomeScreen() {
   const pctUsado  = limiteMes > 0 ? Math.min((gastadoMes / limiteMes) * 100, 100) : 0;
 
   const todaySpent = useMemo(
-    () => expenses.filter((e) => e.fecha.slice(0, 10) === todayKey).reduce((s, e) => s + e.importe, 0),
+    () => expenses.filter((e) => toDateKey(new Date(e.fecha)) === todayKey).reduce((s, e) => s + e.importe, 0),
     [expenses, todayKey],
   );
   const weekSpent = useMemo(() => getWeekSpent(), [getWeekSpent, expenses]);

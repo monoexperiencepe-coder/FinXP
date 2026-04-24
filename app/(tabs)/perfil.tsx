@@ -19,6 +19,8 @@ import { avatarRingBorder, logoutRowStyle, onPrimaryGradient } from '@/constants
 import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
 import * as db from '@/lib/database';
+import { currentYearMonth } from '@/lib/dates';
+import { clearLastLogin, clearOnboardingLocal } from '@/lib/preferences';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_BANCOS_DISPONIBLES, DEFAULT_METODOS_DE_PAGO } from '@/types';
@@ -231,7 +233,7 @@ export default function PerfilScreen() {
     if (incomeCategories.length === 0) void loadIncomeCategories();
 
     const uid = user?.id;
-    const mesActual = new Date().toISOString().slice(0, 7);
+    const mesActual = currentYearMonth();
     const fromStore: Record<string, string> = {};
     budgets.forEach((b) => {
       fromStore[b.categoria] = String(b.limiteMonthly);
@@ -292,8 +294,8 @@ export default function PerfilScreen() {
   const handleSignOut = async () => {
     try {
       await signOut();
-      await AsyncStorage.removeItem('ahorraya_onboarding_done');
-      await AsyncStorage.removeItem('ahorraya_last_login');
+      await clearOnboardingLocal();
+      await clearLastLogin();
     } catch (e) {
       console.error('Error signing out:', e);
     }
@@ -340,7 +342,7 @@ export default function PerfilScreen() {
     }
     setSavingBudgets(true);
     try {
-      const mes = new Date().toISOString().slice(0, 7);
+      const mes = currentYearMonth();
       for (const [categoria, val] of Object.entries(budgetAmounts)) {
         const n = parseFloat(String(val).replace(',', '.'));
         if (!Number.isNaN(n) && n > 0) {
