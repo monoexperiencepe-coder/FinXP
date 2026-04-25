@@ -241,13 +241,24 @@ export default function HomeScreen() {
     asistenteWhatsappLock.current = true;
     setAsistenteWhatsappLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      console.log('[Asistente IA] before supabase.auth.getSession()');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       const token = session?.access_token;
+      console.log('[Asistente IA] after getSession()', {
+        hasAccessToken: !!token,
+        accessTokenLength: token ? token.length : 0,
+        sessionError: sessionError?.message ?? null,
+      });
       if (!token) {
-        Alert.alert('WhatsApp', 'Iniciá sesión para vincular tu asistente por WhatsApp.');
+        Alert.alert(
+          'WhatsApp',
+          sessionError?.message || 'Iniciá sesión para vincular tu asistente por WhatsApp.',
+        );
         return;
       }
-      const res = await fetch(whatsappLinkCodeApiUrl(), {
+      const apiUrl = whatsappLinkCodeApiUrl();
+      console.log('[Asistente IA] fetch url', apiUrl);
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -256,25 +267,34 @@ export default function HomeScreen() {
         body: JSON.stringify({}),
       });
       const text = await res.text();
+      console.log('[Asistente IA] fetch response', { status: res.status, responseText: text });
       let data: { whatsappUrl?: string; error?: string } = {};
+      let parseErr: Error | null = null;
       try {
         data = text ? (JSON.parse(text) as { whatsappUrl?: string; error?: string }) : {};
-      } catch {
+      } catch (e) {
+        parseErr = e instanceof Error ? e : new Error(String(e));
         data = {};
       }
       if (!res.ok) {
-        Alert.alert('WhatsApp', data.error || `No se pudo generar el código (${res.status})`);
+        Alert.alert('WhatsApp', data.error || text || `HTTP ${res.status}`);
+        return;
+      }
+      if (parseErr) {
+        Alert.alert('WhatsApp', `JSON inválido: ${parseErr.message}\n\n${text.slice(0, 400)}`);
         return;
       }
       const url = data.whatsappUrl;
       if (typeof url !== 'string' || !url) {
-        Alert.alert('WhatsApp', 'Respuesta inesperada del servidor.');
+        Alert.alert('WhatsApp', `Respuesta inesperada del servidor.\n\n${text.slice(0, 400)}`);
         return;
       }
+      console.log('[Asistente IA] openURL', { whatsappUrl: url });
       await Linking.openURL(url);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Intentá de nuevo en un rato.';
-      Alert.alert('WhatsApp', msg);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[Asistente IA] catch', e);
+      Alert.alert('WhatsApp', msg || 'Intentá de nuevo en un rato.');
     } finally {
       asistenteWhatsappLock.current = false;
       setAsistenteWhatsappLoading(false);
