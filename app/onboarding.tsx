@@ -1098,9 +1098,11 @@ export default function OnboardingScreen() {
               <View style={S.gastosScrollFreeTop}>
                 {/* Encabezado — una sola frase, menos altura */}
                 <View style={{ width: '100%' }}>
-                  <Text style={[S.gastosIntroTitle, { color: T.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
-                    Gastos de{' '}
-                    <Text style={{ color: T.primary }}>cada mes</Text>
+                  <Text
+                    style={[S.gastosIntroTitle, { color: T.textPrimary }]}
+                    numberOfLines={1}
+                    {...(Platform.OS !== 'web' ? { adjustsFontSizeToFit: true } : {})}>
+                    Gastos de <Text style={{ color: T.primary }}>cada mes</Text>
                   </Text>
                   <Text
                     style={[
@@ -1109,9 +1111,13 @@ export default function OnboardingScreen() {
                         color: T.textSecondary,
                         marginTop: 4,
                         width: '100%',
-                        textShadowColor: isDarkMode ? 'rgba(0,0,0,0.5)' : 'rgba(124,58,237,0.2)',
-                        textShadowOffset: { width: 0, height: 0.5 },
-                        textShadowRadius: isDarkMode ? 3 : 2,
+                        ...(Platform.OS === 'web'
+                          ? {}
+                          : {
+                              textShadowColor: isDarkMode ? 'rgba(0,0,0,0.5)' : 'rgba(124,58,237,0.2)',
+                              textShadowOffset: { width: 0, height: 0.5 },
+                              textShadowRadius: isDarkMode ? 3 : 2,
+                            }),
                       },
                     ]}>
                     Toca las que apliquen.
@@ -1155,7 +1161,8 @@ export default function OnboardingScreen() {
                                   ...Platform.select({
                                     ios: { shadowColor: T.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.28, shadowRadius: 8 },
                                     android: { elevation: 4 },
-                                    web: { boxShadow: `0 3px 14px ${T.shadowPrimary}, 0 1px 0 rgba(255,255,255,0.06) inset` } as object,
+                                    // Web: evitar `inset` + sombras apiladas (pueden fallar al re-render al tocar un chip)
+                                    web: { boxShadow: `0 3px 12px ${T.shadowPrimary}` } as object,
                                     default: {},
                                   }) }
                               : {
@@ -1165,7 +1172,7 @@ export default function OnboardingScreen() {
                                   ...Platform.select({
                                     ios: { shadowColor: '#0b1020', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.22, shadowRadius: 5 },
                                     android: { elevation: 2 },
-                                    web: { boxShadow: '0 2px 12px rgba(0,0,0,0.22), 0 1px 0 rgba(255,255,255,0.05) inset' } as object,
+                                    web: { boxShadow: '0 2px 10px rgba(0,0,0,0.2)' } as object,
                                     default: {},
                                   }),
                                 },
@@ -1210,7 +1217,7 @@ export default function OnboardingScreen() {
                               ...Platform.select({
                                 ios: { shadowColor: T.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.22, shadowRadius: 7 },
                                 android: { elevation: 3 },
-                                web: { boxShadow: `0 3px 12px ${T.shadowPrimary}` } as object,
+                                web: { boxShadow: `0 2px 10px ${T.shadowPrimary}` } as object,
                                 default: {},
                               }),
                             },

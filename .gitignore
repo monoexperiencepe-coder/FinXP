@@ -32,6 +32,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+# Secretos del serverless de WhatsApp (ver api/.env.example)
+api/.env
 
 # typescript
 *.tsbuildinfo

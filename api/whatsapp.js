@@ -1,8 +1,6 @@
 /**
- * Webhook WhatsApp (Meta) — Fase 1: verificación GET + POST esqueleto.
- * No modifica api/chat.js.
- *
- * Vercel: VERIFY_TOKEN (GET verify), WHATSAPP_TOKEN y PHONE_NUMBER_ID (Meta Graph; fases posteriores).
+ * Webhook WhatsApp (Meta) — GET (VERIFY_TOKEN) + POST: respuesta automática a mensajes de texto (Cloud API v20).
+ * Env: VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID. Sin secretos en código. No modifica api/chat.js.
  */
 
 function getQueryParam(query, key) {
@@ -68,6 +66,43 @@ function safeLogWebhookBody(body) {
   }
 }
 
+const AUTO_REPLY =
+  'Hola 👋 Soy tu asistente financiero. Ya recibí tu mensaje.';
+
+/**
+ * Envía un mensaje de texto por la Cloud API de Meta (mismo hilo: `to` = remitente entrante).
+ */
+async function sendWhatsappTextReply(to) {
+  const phoneNumberId = process.env.PHONE_NUMBER_ID;
+  const accessToken = process.env.WHATSAPP_TOKEN;
+  if (!phoneNumberId || !accessToken) {
+    console.warn('[whatsapp] falta PHONE_NUMBER_ID o WHATSAPP_TOKEN; no se envía respuesta');
+    return;
+  }
+
+  const url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: { body: AUTO_REPLY },
+    }),
+  });
+
+  const raw = await res.text();
+  if (!res.ok) {
+    console.error('[whatsapp] Graph API', res.status, raw);
+  } else {
+    console.log('[whatsapp] enviado OK', raw.length > 500 ? `${raw.slice(0, 500)}…` : raw);
+  }
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
     const mode = getQueryParam(req.query, 'hub.mode');
@@ -91,9 +126,6 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    void process.env.WHATSAPP_TOKEN;
-    void process.env.PHONE_NUMBER_ID;
-
     const body = parseJsonBody(req);
     safeLogWebhookBody(body);
 
@@ -104,10 +136,19 @@ module.exports = async function handler(req, res) {
       const textBody =
         type === 'text' && msg.text && typeof msg.text.body === 'string' ? msg.text.body : undefined;
       console.log('[whatsapp] incoming', JSON.stringify({ from, type, textBody }));
+
+      if (type === 'text' && from != null && from !== '') {
+        try {
+          await sendWhatsappTextReply(String(from));
+        } catch (e) {
+          console.error('[whatsapp] error al enviar respuesta', e);
+        }
+      }
     } else {
       console.log('[whatsapp] incoming (sin mensaje en payload)');
     }
 
+    // Meta espera 200 pronto; errores al enviar el reply se loguean pero no bloquean el acuse.
     return res.status(200).json({ ok: true });
   }
 
