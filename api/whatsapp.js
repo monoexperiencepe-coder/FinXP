@@ -70,12 +70,22 @@ function safeLogWebhookBody(body) {
   }
 }
 
-const AUTO_REPLY = `Puedo ayudarte a registrar gastos 💸\nprueba algo como: 'taxi 12'`;
+const MSG_FALLBACK_GASTO = "Puedo ayudarte a registrar gastos 💸 prueba algo como: 'pollo 15'";
+const MSG_DOMINIO_FINANZAS = `Solo puedo ayudarte con tus finanzas 💸
+prueba algo como: 'pollo 15' o 'cuanto gasté hoy'`;
+const MSG_INTENT_EDIT = 'Aún no puedo editar gastos 😅 pronto lo podrás hacer desde la app';
+const MSG_INTENT_QUERY = 'Pronto podrás consultar tus gastos por aquí 📊';
+const MSG_SIN_GASTOS_HOY = `Aún no registras gastos hoy 👀
+prueba algo como: 'almuerzo 15'`;
+const MSG_SIN_GASTOS_MES = 'Aún no tienes gastos registrados este mes 👍';
+const MSG_TIME_FUTURE = 'Aún no puedo registrar gastos futuros 😅';
+const MSG_TIME_PAST =
+  'Aún no puedo registrar gastos de ayer por aquí 😅 Quita la palabra "ayer" o regístralo con fecha en la app.';
 
 const MSG_VINCULO_OK = 'Listo ✅ Tu WhatsApp ya está vinculado a tu cuenta.';
 const MSG_VINCULO_BAD = 'Código inválido o vencido.';
 const MSG_REQUIERE_VINCULO = 'Para usar este asistente, primero vincula tu cuenta desde la app.';
-const MSG_FALTA_MONTO = "No entendí el monto 😅 prueba algo como: 'almuerzo 15'";
+const MSG_NO_ENTENDI_LINEAS = "No entendí 😅 prueba algo como: 'almuerzo 15'";
 
 let supabaseServiceSingleton = null;
 
@@ -329,23 +339,134 @@ function categoryEmoji(categoryId) {
   return map[categoryId] || '💸';
 }
 
-function parseExpenseFromText(text) {
-  if (typeof text !== 'string' || !text.trim()) return { kind: 'none' };
-  const raw = text.trim();
-  const lower = raw.toLowerCase();
+/**
+ * Texto normalizado para keywords (minúsculas, sin tildes).
+ */
+function normalizeIntentText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '');
+}
 
+function isFinanceRelated(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+
+  const normalized = normalizeIntentText(raw).replace(/\s+/g, ' ').trim();
+
+  const financeKeywords =
+    /\b(gasto|gaste|dinero|plata|comida|taxi|mercado|bodega|pago|pague|transferencia|yape|plin|cuanto|resumen|voy|mes|pollo|almuerzo|desayuno|cena|hamburguesa|restaurante|cafe|uber|movilidad|combi|bus|pasaje|cine|netflix|tienda|supermercado)\b/;
+
+  if (financeKeywords.test(normalized)) return true;
+
+  const hasNumber = /\d/.test(raw);
+  const hasText = /[a-zA-Z]/.test(raw);
+
+  if (!(hasNumber && hasText)) return false;
+
+  const contextHint =
+    /\b(comida|almuerzo|desayuno|cena|taxi|uber|movilidad|pasaje|yape|plin|transferencia|mercado|bodega|tienda|supermercado|pollo|hamburguesa|cafe|restaurante|sol|soles|pen|s\/)\b/;
+
+  return contextHint.test(normalized);
+}
+
+/**
+ * Comando de edición / corrección (no soportado aún).
+ * @returns {'command' | 'query' | null}
+ */
+function detectNonExpenseIntent(text) {
+  const n = normalizeIntentText(text).replace(/\s+/g, ' ').trim();
+  if (!n) return null;
+
+  if (/\bno\s+era\b/.test(n)) return 'command';
+  if (/\bborra(r|ste|ron|mos)?\b/.test(n)) return 'command';
+  if (/\belimina(r|ste|ron|mos)?\b/.test(n)) return 'command';
+  if (/\bcorrige(r|mos|ste)?\b/.test(n)) return 'command';
+  if (/\bcambia(r|mos|ste|s)?\b/.test(n)) return 'command';
+
+  if (/\bcuanto\b/.test(n)) return 'query';
+  if (/\bresumen\b/.test(n)) return 'query';
+  if (/\bcomo\s+voy\b/.test(n)) return 'query';
+  if (/\bque\s+tal\b/.test(n)) return 'query';
+
+  return null;
+}
+
+/**
+ * Referencias relativas al día (no soportadas salvo "hoy" implícito).
+ * "mañana" normaliza a "manana" (sin tilde).
+ * @returns {'future' | 'past' | null}
+ */
+function detectRelativeDayMarker(text) {
+  const n = normalizeIntentText(text).replace(/\s+/g, ' ').trim();
+  if (!n) return null;
+  if (/\bmanana\b/.test(n)) return 'future';
+  if (/\bayer\b/.test(n)) return 'past';
+  return null;
+}
+
+/**
+ * Misma heurística que usa el parser por trozo: parece registro de gasto.
+ */
+function textLooksLikeExpenseCandidate(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) return false;
+  const lower = raw.trim().toLowerCase();
   const amountMatch = lower.match(/(\d+(?:[.,]\d{1,2})?)/);
   const hasExpenseVerb = /(gaste|gast[eé]|pague|pagu[eé]|compre|compr[eé])/.test(lower);
   const hasCurrencyHint = /(s\/|sol|soles|pen)/.test(lower);
   const hasCategoryHint =
     /(comida|almuerzo|taxi|uber|movilidad|combi|pasaje|yape|plin|transferencia|mercado|bodega|tienda|farmacia|internet|luz|agua|cine|alquiler|restaurante|pollo|hamburguesa)/.test(lower);
+  return (
+    hasExpenseVerb ||
+    (amountMatch && (hasCurrencyHint || hasCategoryHint || lower.split(/\s+/).length >= 2))
+  );
+}
 
-  const looksLikeExpense = hasExpenseVerb || (amountMatch && (hasCurrencyHint || hasCategoryHint || lower.split(/\s+/).length >= 2));
-  if (!looksLikeExpense) return { kind: 'none' };
-  if (!amountMatch) return { kind: 'missing_amount' };
-
+/**
+ * Línea válida para guardar: hay monto parseable y queda texto descriptivo (letras), no solo número.
+ */
+function chunkMeetsNumberPlusTextRule(raw) {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  const amountMatch = lower.match(/(\d+(?:[.,]\d{1,2})?)/);
+  if (!amountMatch || amountMatch.index == null) return false;
   const amount = Number.parseFloat(amountMatch[1].replace(',', '.'));
-  if (!Number.isFinite(amount) || amount <= 0) return { kind: 'missing_amount' };
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+  const start = amountMatch.index;
+  const len = amountMatch[0].length;
+  let rest = trimmed.slice(0, start) + trimmed.slice(start + len);
+  rest = rest.replace(/\d+(?:[.,]\d{1,2})?/g, ' ');
+  rest = rest.replace(/\b(s\/\.?|sol(es)?|pen|soles)\b/gi, ' ');
+  rest = rest.replace(/\s+/g, ' ').trim();
+  return /[a-záéíóúñü]/i.test(rest);
+}
+
+/**
+ * True si algún trozo (línea o segmento coma/;/y) parece gasto.
+ */
+function messageAppearsToBeExpenseRegistration(text) {
+  const rawLines = String(text || '')
+    .split(/\r?\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const lines = rawLines.length > 0 ? rawLines : [String(text || '').trim()].filter(Boolean);
+  const chunks = lines.flatMap((ln) => expandExpenseSegments(ln));
+  return chunks.some((c) => textLooksLikeExpenseCandidate(c));
+}
+
+function parseExpenseFromText(text) {
+  if (typeof text !== 'string' || !text.trim()) return { kind: 'none' };
+  const raw = text.trim();
+  const lower = raw.toLowerCase();
+
+  if (!textLooksLikeExpenseCandidate(raw)) return { kind: 'none' };
+  if (!chunkMeetsNumberPlusTextRule(raw)) return { kind: 'none' };
+
+  const amountMatch = lower.match(/(\d+(?:[.,]\d{1,2})?)/);
+  const amount = Number.parseFloat(amountMatch[1].replace(',', '.'));
+  if (!Number.isFinite(amount) || amount <= 0) return { kind: 'none' };
 
   const { categoryId, categoryLabel } = detectCategoryInfo(lower);
   const desc = cleanDescriptionText(raw);
@@ -400,16 +521,11 @@ function parseMultipleExpensesFromText(text) {
   const chunks = lines.flatMap((ln) => expandExpenseSegments(ln));
 
   const valid = [];
-  let hasMissingAmount = false;
   for (const chunk of chunks) {
     const parsed = parseExpenseFromText(chunk);
-    if (parsed.kind === 'expense') {
-      valid.push(parsed);
-    } else if (parsed.kind === 'missing_amount') {
-      hasMissingAmount = true;
-    }
+    if (parsed.kind === 'expense') valid.push(parsed);
   }
-  return { valid, hasMissingAmount };
+  return { valid };
 }
 
 function formatPen(amount) {
@@ -490,6 +606,295 @@ async function getTodayTotalSpent(userId) {
   return (data || []).reduce((s, r) => s + Number(r.importe || 0), 0);
 }
 
+const CATEGORY_ORDER_RESUMEN = [
+  'comida',
+  'transporte',
+  'transferencia',
+  'compras',
+  'vivienda',
+  'salud',
+  'servicios',
+  'suscripciones',
+  'educacion',
+  'ocio',
+  'otros',
+];
+
+function labelForCategoryId(id) {
+  const map = {
+    comida: 'comida',
+    transporte: 'transporte',
+    transferencia: 'transferencia',
+    compras: 'compras',
+    vivienda: 'vivienda',
+    salud: 'salud',
+    servicios: 'servicios',
+    suscripciones: 'suscripciones',
+    educacion: 'educacion',
+    ocio: 'ocio',
+    otros: 'otros',
+  };
+  return map[id] || id;
+}
+
+/** Líneas "emoji categoría: S/X" solo para montos > 0. */
+function categoryLinesFromByCat(byCat) {
+  const lines = [];
+  const seen = new Set();
+  for (const id of CATEGORY_ORDER_RESUMEN) {
+    const v = byCat[id];
+    if (v > 0) {
+      lines.push(`${categoryEmoji(id)} ${labelForCategoryId(id)}: S/${formatPen(v)}`);
+      seen.add(id);
+    }
+  }
+  for (const id of Object.keys(byCat)) {
+    if (!seen.has(id) && byCat[id] > 0) {
+      lines.push(`${categoryEmoji(id)} ${labelForCategoryId(id)}: S/${formatPen(byCat[id])}`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Suma de importes de hoy por categoria (clave = valor en columna categoria).
+ */
+async function getTodayTotalsByCategory(userId) {
+  const supabase = getServiceSupabase();
+  if (!supabase) return {};
+  const { startIso, endIso } = dayBoundsLocal(new Date());
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('categoria, importe')
+    .eq('user_id', userId)
+    .gte('fecha', startIso)
+    .lt('fecha', endIso);
+  if (error) {
+    console.error('[whatsapp] today by-category error', error);
+    return {};
+  }
+  const totals = {};
+  for (const row of data || []) {
+    const cat = typeof row.categoria === 'string' && row.categoria ? row.categoria : 'otros';
+    totals[cat] = (totals[cat] || 0) + Number(row.importe || 0);
+  }
+  return totals;
+}
+
+/**
+ * Texto de "resumen de hoy" con categorías con gasto > 0.
+ */
+async function buildResumenHoyMessage(userId) {
+  const byCat = await getTodayTotalsByCategory(userId);
+  const total = Object.values(byCat).reduce((s, v) => s + v, 0);
+  if (total <= 0) return MSG_SIN_GASTOS_HOY;
+  const lines = categoryLinesFromByCat(byCat);
+  return `Así va tu día 👇\n\n${lines.join('\n')}\n\nTotal: S/${formatPen(total)} 💸`;
+}
+
+/**
+ * Respuesta "cuanto … hoy": total + desglose por categoría (> 0).
+ */
+async function buildCuantoHoyMessage(userId) {
+  const byCat = await getTodayTotalsByCategory(userId);
+  const total = Object.values(byCat).reduce((s, v) => s + v, 0);
+  if (total <= 0) return MSG_SIN_GASTOS_HOY;
+  const lines = categoryLinesFromByCat(byCat);
+  return `Hoy llevas S/${formatPen(total)} 💸\n${lines.join('\n')}`;
+}
+
+/**
+ * Consultas de lectura soportadas (hoy, sin IA).
+ * @returns {{ kind: 'resumen_hoy' } | { kind: 'total_hoy' } | { kind: 'voy_en_categoria', tail: string } | null}
+ */
+function parseTodayExpenseQuery(text) {
+  const n = normalizeIntentText(text).replace(/\s+/g, ' ').trim();
+  if (!n) return null;
+
+  if (/\bresumen\b/.test(n) && /\bhoy\b/.test(n)) {
+    return { kind: 'resumen_hoy' };
+  }
+
+  if (/\bcuanto\b/.test(n) && /\bhoy\b/.test(n)) {
+    return { kind: 'total_hoy' };
+  }
+
+  if (/\bcuanto\b/.test(n) && /\bvoy\b/.test(n) && /\ben\b/.test(n)) {
+    const m = n.match(/\ben\s+(.+)$/);
+    if (!m) return null;
+    const tail = m[1].trim();
+    if (!tail) return null;
+    return { kind: 'voy_en_categoria', tail };
+  }
+
+  return null;
+}
+
+/**
+ * Si el mensaje es una consulta de hoy soportada, responde por WhatsApp y devuelve true.
+ */
+async function tryHandleTodayExpenseQuery(waFrom, textBody, userId) {
+  const q = parseTodayExpenseQuery(textBody);
+  if (!q) return false;
+
+  let reply;
+  if (q.kind === 'total_hoy') {
+    reply = await buildCuantoHoyMessage(userId);
+  } else if (q.kind === 'voy_en_categoria') {
+    const { categoryId, categoryLabel } = detectCategoryInfo(q.tail.toLowerCase());
+    const t = await getTodaySpentByCategory(userId, categoryId);
+    const em = categoryEmoji(categoryId);
+    reply = t <= 0 ? MSG_SIN_GASTOS_HOY : `Hoy llevas S/${formatPen(t)} en ${categoryLabel} ${em}`;
+  } else if (q.kind === 'resumen_hoy') {
+    reply = await buildResumenHoyMessage(userId);
+  } else {
+    return false;
+  }
+
+  try {
+    await sendWhatsappTextMessage(waFrom, reply);
+  } catch (e) {
+    console.error('[whatsapp] tryHandleTodayExpenseQuery send', e);
+  }
+  return true;
+}
+
+/**
+ * Mes calendario actual (columna expenses.mes, formato YYYY-MM).
+ */
+function currentMonthKey() {
+  return monthKeyLocal(new Date());
+}
+
+async function getMonthTotalsByCategory(userId, mesKey) {
+  const supabase = getServiceSupabase();
+  if (!supabase) return {};
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('categoria, importe')
+    .eq('user_id', userId)
+    .eq('mes', mesKey);
+  if (error) {
+    console.error('[whatsapp] month by-category error', error);
+    return {};
+  }
+  const totals = {};
+  for (const row of data || []) {
+    const cat = typeof row.categoria === 'string' && row.categoria ? row.categoria : 'otros';
+    totals[cat] = (totals[cat] || 0) + Number(row.importe || 0);
+  }
+  return totals;
+}
+
+async function getMonthTotalSpent(userId, mesKey) {
+  const supabase = getServiceSupabase();
+  if (!supabase) return 0;
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('importe')
+    .eq('user_id', userId)
+    .eq('mes', mesKey);
+  if (error) {
+    console.error('[whatsapp] month total error', error);
+    return 0;
+  }
+  return (data || []).reduce((s, r) => s + Number(r.importe || 0), 0);
+}
+
+async function getMonthSpentByCategory(userId, categoryId, mesKey) {
+  const supabase = getServiceSupabase();
+  if (!supabase) return 0;
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('importe')
+    .eq('user_id', userId)
+    .eq('categoria', categoryId)
+    .eq('mes', mesKey);
+  if (error) {
+    console.error('[whatsapp] month category sum error', error);
+    return 0;
+  }
+  return (data || []).reduce((s, r) => s + Number(r.importe || 0), 0);
+}
+
+function hasMonthQueryContext(normalized) {
+  return /\beste\s+mes\b/.test(normalized) || /\bdel\s+mes\b/.test(normalized);
+}
+
+/**
+ * @returns {{ kind: 'resumen_mes' } | { kind: 'total_mes' } | { kind: 'voy_en_categoria_mes', tail: string } | null}
+ */
+function parseMonthExpenseQuery(text) {
+  const n = normalizeIntentText(text).replace(/\s+/g, ' ').trim();
+  if (!n || !hasMonthQueryContext(n)) return null;
+
+  if (/\bresumen\b/.test(n) && (/\bdel\s+mes\b/.test(n) || /\beste\s+mes\b/.test(n))) {
+    return { kind: 'resumen_mes' };
+  }
+
+  if (/\bcuanto\b/.test(n) && /\bvoy\b/.test(n) && /\ben\b/.test(n)) {
+    const mEste = n.match(/\ben\s+(.+?)\s+este\s+mes\b/);
+    if (mEste) {
+      const tail = mEste[1].trim();
+      if (tail) return { kind: 'voy_en_categoria_mes', tail };
+    }
+    const mDel = n.match(/\ben\s+(.+?)\s+del\s+mes\b/);
+    if (mDel) {
+      const tail = mDel[1].trim();
+      if (tail) return { kind: 'voy_en_categoria_mes', tail };
+    }
+    return null;
+  }
+
+  if (/\bcuanto\b/.test(n) && /\b(gaste|llevo|gasto|gastas)\b/.test(n)) {
+    return { kind: 'total_mes' };
+  }
+
+  return null;
+}
+
+async function buildResumenMesMessage(userId, mesKey) {
+  const byCat = await getMonthTotalsByCategory(userId, mesKey);
+  const total = Object.values(byCat).reduce((s, v) => s + v, 0);
+  if (total <= 0) return MSG_SIN_GASTOS_MES;
+  const lines = categoryLinesFromByCat(byCat);
+  return `Resumen del mes 👇\n\n${lines.join('\n')}\n\nTotal: S/${formatPen(total)} 💸`;
+}
+
+async function buildCuantoMesTotalMessage(userId, mesKey) {
+  const t = await getMonthTotalSpent(userId, mesKey);
+  if (t <= 0) return MSG_SIN_GASTOS_MES;
+  return `Este mes llevas S/${formatPen(t)} 💸`;
+}
+
+async function tryHandleMonthExpenseQuery(waFrom, textBody, userId) {
+  const q = parseMonthExpenseQuery(textBody);
+  if (!q) return false;
+
+  const mesKey = currentMonthKey();
+
+  let reply;
+  if (q.kind === 'total_mes') {
+    reply = await buildCuantoMesTotalMessage(userId, mesKey);
+  } else if (q.kind === 'voy_en_categoria_mes') {
+    const { categoryId, categoryLabel } = detectCategoryInfo(q.tail.toLowerCase());
+    const t = await getMonthSpentByCategory(userId, categoryId, mesKey);
+    const em = categoryEmoji(categoryId);
+    reply = t <= 0 ? MSG_SIN_GASTOS_MES : `Este mes llevas S/${formatPen(t)} en ${categoryLabel} ${em}`;
+  } else if (q.kind === 'resumen_mes') {
+    reply = await buildResumenMesMessage(userId, mesKey);
+  } else {
+    return false;
+  }
+
+  try {
+    await sendWhatsappTextMessage(waFrom, reply);
+  } catch (e) {
+    console.error('[whatsapp] tryHandleMonthExpenseQuery send', e);
+  }
+  return true;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
     const mode = getQueryParam(req.query, 'hub.mode');
@@ -534,34 +939,69 @@ module.exports = async function handler(req, res) {
               await sendWhatsappTextMessage(waFrom, MSG_REQUIERE_VINCULO);
               return res.status(200).json({ ok: true });
             }
-            const batch = parseMultipleExpensesFromText(textBody);
-            if (batch.valid.length === 0 && batch.hasMissingAmount) {
-              await sendWhatsappTextMessage(waFrom, MSG_FALTA_MONTO);
+            const intent = detectNonExpenseIntent(textBody);
+            if (intent === 'command') {
+              await sendWhatsappTextMessage(waFrom, MSG_INTENT_EDIT);
               return res.status(200).json({ ok: true });
             }
-            if (batch.valid.length > 0) {
-              try {
-                for (const expense of batch.valid) {
-                  await saveExpenseFromWhatsapp(linkedUserId, expense);
-                }
-                const summaryLines = batch.valid.map(
-                  (e) => `• S/${formatPen(e.amount)} en ${e.categoryLabel}`,
-                );
-                const todayTotal = await getTodayTotalSpent(linkedUserId);
-                await sendWhatsappTextMessage(
-                  waFrom,
-                  `Listo 👍 guardé:\n${summaryLines.join('\n')}\n\nHoy ya vas S/${formatPen(todayTotal)} en total.`,
-                );
-              } catch (saveErr) {
-                console.error('[whatsapp] save expense error', saveErr);
-                await sendWhatsappTextMessage(
-                  waFrom,
-                  'No pude registrar ese gasto ahora. Inténtalo de nuevo en un momento.',
-                );
+            const handledTodayQuery = await tryHandleTodayExpenseQuery(waFrom, textBody, linkedUserId);
+            if (handledTodayQuery) {
+              return res.status(200).json({ ok: true });
+            }
+            const handledMonthQuery = await tryHandleMonthExpenseQuery(waFrom, textBody, linkedUserId);
+            if (handledMonthQuery) {
+              return res.status(200).json({ ok: true });
+            }
+            if (intent === 'query') {
+              await sendWhatsappTextMessage(waFrom, MSG_INTENT_QUERY);
+              return res.status(200).json({ ok: true });
+            }
+            if (!messageAppearsToBeExpenseRegistration(textBody)) {
+              if (!isFinanceRelated(textBody)) {
+                await sendWhatsappTextMessage(waFrom, MSG_DOMINIO_FINANZAS);
+                return res.status(200).json({ ok: true });
               }
+              await sendWhatsappTextMessage(waFrom, MSG_FALLBACK_GASTO);
               return res.status(200).json({ ok: true });
             }
-            await sendWhatsappTextMessage(waFrom, AUTO_REPLY);
+            const dayMarker = detectRelativeDayMarker(textBody);
+            if (dayMarker === 'future') {
+              await sendWhatsappTextMessage(waFrom, MSG_TIME_FUTURE);
+              return res.status(200).json({ ok: true });
+            }
+            if (dayMarker === 'past') {
+              await sendWhatsappTextMessage(waFrom, MSG_TIME_PAST);
+              return res.status(200).json({ ok: true });
+            }
+            const batch = parseMultipleExpensesFromText(textBody);
+            if (batch.valid.length === 0) {
+              await sendWhatsappTextMessage(waFrom, MSG_NO_ENTENDI_LINEAS);
+              return res.status(200).json({ ok: true });
+            }
+           
+            try {
+              await Promise.all(
+                batch.valid.map((e) => saveExpenseFromWhatsapp(linkedUserId, e)),
+              );
+            
+              const summaryLines = batch.valid.map(
+                (e) => `• S/${formatPen(e.amount)} en ${e.categoryLabel}`,
+              );
+            
+              const todayTotal = await getTodayTotalSpent(linkedUserId);
+            
+              await sendWhatsappTextMessage(
+                waFrom,
+                `Listo 👍 guardé:\n${summaryLines.join('\n')}\n\nHoy ya vas S/${formatPen(todayTotal)} 💸`,
+              );
+            } catch (saveErr) {
+              console.error('[whatsapp] save expense error', saveErr);
+              await sendWhatsappTextMessage(
+                waFrom,
+                'No pude registrar ese gasto ahora. Inténtalo de nuevo en un momento.',
+              );
+            }
+            return res.status(200).json({ ok: true });
           }
         } catch (e) {
           console.error('[whatsapp] error al procesar / responder', e);
