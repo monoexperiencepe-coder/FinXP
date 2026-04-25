@@ -23,6 +23,7 @@ import '../global.css';
 import { AppPreloader } from '@/components/AppPreloader';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import {
+  clearOnboardingLocal,
   clearLastLogin,
   readDarkModeCache,
   readLastLoginMs,
@@ -44,6 +45,7 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [introDone, setIntroDone] = useState(false);
+  const [sessionValidated, setSessionValidated] = useState(false);
   const onIntroFinish = useCallback(() => {
     setIntroDone(true);
     useAppShellStore.getState().setPreloaderComplete(true);
@@ -111,7 +113,66 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (!initialized || !loaded) return;
+    if (!initialized) {
+      setSessionValidated(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      // Sin sesión local no hay nada que validar contra backend.
+      if (!session) {
+        if (!cancelled) setSessionValidated(true);
+        return;
+      }
+
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
+
+      if (cancelled) return;
+
+      if (error || !user) {
+        // Sesión local huérfana (usuario borrado o token inválido): cerrar y limpiar.
+        await supabase.auth.signOut();
+        await Promise.all([clearLastLogin(), clearOnboardingLocal()]);
+
+        const currentTheme = useFinanceStore.getState().theme;
+        void useFinanceStore.persist.clearStorage();
+        useFinanceStore.setState((s) => ({
+          ...s,
+          profile: { ...s.profile, id: '', nombreUsuario: '' },
+          expenses: [],
+          incomes: [],
+          fixedExpenses: [],
+          creditCards: [],
+          budgets: [],
+          missions: [],
+          aiInsights: [],
+          categories: [],
+          incomeCategories: [],
+          onboardingCompleted: false,
+          syncing: false,
+          lastSync: null,
+          theme: currentTheme,
+        }));
+        useAuthStore.setState({
+          session: null,
+          user: null,
+          postLoginTransitionPending: false,
+        });
+        router.replace('/(auth)/login' as any);
+      }
+
+      if (!cancelled) setSessionValidated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialized, session, router]);
+
+  useEffect(() => {
+    if (!initialized || !loaded || !sessionValidated) return;
     const root = segments[0] as string | undefined;
     const inAuthGroup = root === '(auth)';
     const inOnboarding = root === 'onboarding';
@@ -164,7 +225,7 @@ export default function RootLayout() {
     return unsub;
   }, []);
 
-  if (!loaded || !initialized) {
+  if (!loaded || !initialized || !sessionValidated) {
     return null;
   }
 

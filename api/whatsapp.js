@@ -74,6 +74,8 @@ const AUTO_REPLY = 'Hola 👋 Soy tu asistente financiero. Ya recibí tu mensaje
 
 const MSG_VINCULO_OK = 'Listo ✅ Tu WhatsApp ya está vinculado a tu cuenta.';
 const MSG_VINCULO_BAD = 'Código inválido o vencido.';
+const MSG_REQUIERE_VINCULO = 'Para usar este asistente, primero vincula tu cuenta desde la app.';
+const MSG_FALTA_MONTO = 'No encontré el monto. Escríbeme algo como: gasté 25 en comida.';
 
 let supabaseServiceSingleton = null;
 
@@ -231,6 +233,141 @@ async function tryVinculacionIfApplicable(from, textBody) {
   return true;
 }
 
+/**
+ * Verifica si el remitente ya está vinculado en whatsapp_links.
+ * @param {string} waId
+ * @returns {Promise<boolean>}
+ */
+async function isLinkedWaId(waId) {
+  const supabase = getServiceSupabase();
+  if (!supabase) return false;
+  const { data, error } = await supabase
+    .from('whatsapp_links')
+    .select('user_id')
+    .eq('wa_id', waId)
+    .maybeSingle();
+  if (error) {
+    console.error('[whatsapp] link lookup', error);
+    return false;
+  }
+  return !!data?.user_id;
+}
+
+/**
+ * Obtiene user_id vinculado desde whatsapp_links.
+ * @param {string} waId
+ * @returns {Promise<string | null>}
+ */
+async function getLinkedUserIdByWaId(waId) {
+  const supabase = getServiceSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('whatsapp_links')
+    .select('user_id')
+    .eq('wa_id', waId)
+    .maybeSingle();
+  if (error) {
+    console.error('[whatsapp] linked user lookup', error);
+    return null;
+  }
+  return typeof data?.user_id === 'string' ? data.user_id : null;
+}
+
+function monthKeyLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+function cleanDescriptionText(text) {
+  let s = String(text || '');
+  s = s.replace(/\b(gaste|gast[eé]|pague|pagu[eé]|compre|compr[eé]|en)\b/gi, ' ');
+  s = s.replace(/s\/\.?/gi, ' ');
+  s = s.replace(/\bsol(es)?\b/gi, ' ');
+  s = s.replace(/\d+(?:[.,]\d{1,2})?/g, ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+function detectCategoryInfo(textLower) {
+  const rules = [
+    { id: 'comida', label: 'comida', keys: ['comida', 'almuerzo', 'desayuno', 'cena', 'restaurante', 'menu'] },
+    { id: 'transporte', label: 'transporte', keys: ['taxi', 'uber', 'bus', 'pasaje', 'transporte', 'gasolina'] },
+    { id: 'vivienda', label: 'vivienda', keys: ['alquiler', 'renta', 'departamento', 'vivienda'] },
+    { id: 'salud', label: 'salud', keys: ['salud', 'farmacia', 'medicina', 'doctor', 'clinica'] },
+    { id: 'servicios', label: 'servicios', keys: ['luz', 'agua', 'internet', 'telefono', 'servicio'] },
+    { id: 'suscripciones', label: 'suscripciones', keys: ['netflix', 'spotify', 'suscripcion', 'suscripciones'] },
+    { id: 'educacion', label: 'educacion', keys: ['curso', 'colegio', 'universidad', 'educacion'] },
+    { id: 'ocio', label: 'ocio', keys: ['cine', 'ocio', 'fiesta', 'salida'] },
+  ];
+  for (const r of rules) {
+    if (r.keys.some((k) => textLower.includes(k))) return { categoryId: r.id, categoryLabel: r.label };
+  }
+  return { categoryId: 'otros', categoryLabel: 'otros' };
+}
+
+function parseExpenseFromText(text) {
+  if (typeof text !== 'string' || !text.trim()) return { kind: 'none' };
+  const raw = text.trim();
+  const lower = raw.toLowerCase();
+
+  const amountMatch = lower.match(/(\d+(?:[.,]\d{1,2})?)/);
+  const hasExpenseVerb = /(gaste|gast[eé]|pague|pagu[eé]|compre|compr[eé])/.test(lower);
+  const hasCurrencyHint = /(s\/|sol|soles|pen)/.test(lower);
+  const hasCategoryHint =
+    /(comida|almuerzo|taxi|uber|transporte|farmacia|internet|luz|agua|cine|alquiler|restaurante)/.test(lower);
+
+  const looksLikeExpense = hasExpenseVerb || (amountMatch && (hasCurrencyHint || hasCategoryHint || lower.split(/\s+/).length >= 2));
+  if (!looksLikeExpense) return { kind: 'none' };
+  if (!amountMatch) return { kind: 'missing_amount' };
+
+  const amount = Number.parseFloat(amountMatch[1].replace(',', '.'));
+  if (!Number.isFinite(amount) || amount <= 0) return { kind: 'missing_amount' };
+
+  const { categoryId, categoryLabel } = detectCategoryInfo(lower);
+  const desc = cleanDescriptionText(raw);
+  const description = desc || categoryLabel;
+  return {
+    kind: 'expense',
+    amount: Math.round(amount * 100) / 100,
+    description,
+    categoryId,
+    categoryLabel,
+    comercio: description.slice(0, 80),
+  };
+}
+
+function formatPen(amount) {
+  const rounded = Math.round(amount * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.00$/, '');
+}
+
+async function saveExpenseFromWhatsapp(userId, parsed) {
+  const supabase = getServiceSupabase();
+  if (!supabase) throw new Error('Falta configuración de Supabase');
+  const now = new Date();
+  const fechaIso = now.toISOString();
+  const mes = monthKeyLocal(now);
+  const payload = {
+    user_id: userId,
+    fecha: fechaIso,
+    cuenta: 'Principal',
+    medio_de_pago: 'WhatsApp',
+    banco: 'N/A',
+    categoria: parsed.categoryId,
+    comercio: parsed.comercio,
+    es_esencial: false,
+    estado_de_animo: null,
+    moneda: 'PEN',
+    descripcion: parsed.description,
+    importe: parsed.amount,
+    mes,
+    xp_ganado: 10,
+  };
+  const { error } = await supabase.from('expenses').insert(payload);
+  if (error) throw error;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
     const mode = getQueryParam(req.query, 'hub.mode');
@@ -270,6 +407,32 @@ module.exports = async function handler(req, res) {
         try {
           const vincularHandled = await tryVinculacionIfApplicable(waFrom, textBody);
           if (!vincularHandled) {
+            const linkedUserId = await getLinkedUserIdByWaId(waFrom);
+            if (!linkedUserId) {
+              await sendWhatsappTextMessage(waFrom, MSG_REQUIERE_VINCULO);
+              return res.status(200).json({ ok: true });
+            }
+            const parsed = parseExpenseFromText(textBody);
+            if (parsed.kind === 'missing_amount') {
+              await sendWhatsappTextMessage(waFrom, MSG_FALTA_MONTO);
+              return res.status(200).json({ ok: true });
+            }
+            if (parsed.kind === 'expense') {
+              try {
+                await saveExpenseFromWhatsapp(linkedUserId, parsed);
+                await sendWhatsappTextMessage(
+                  waFrom,
+                  `Listo ✅ Registré: S/${formatPen(parsed.amount)} en ${parsed.categoryLabel}.`,
+                );
+              } catch (saveErr) {
+                console.error('[whatsapp] save expense error', saveErr);
+                await sendWhatsappTextMessage(
+                  waFrom,
+                  'No pude registrar ese gasto ahora. Inténtalo de nuevo en un momento.',
+                );
+              }
+              return res.status(200).json({ ok: true });
+            }
             await sendWhatsappTextMessage(waFrom, AUTO_REPLY);
           }
         } catch (e) {

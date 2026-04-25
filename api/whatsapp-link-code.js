@@ -112,8 +112,7 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'No se pudo generar un código único' });
   }
 
-  const prefill = `VINCULAR ${code}`;
-  const whatsappUrl = `https://wa.me/${waDigits}?text=${encodeURIComponent(prefill)}`;
+  const whatsappUrl = `https://wa.me/${waDigits}?text=${encodeURIComponent(`VINCULAR ${code}`)}`;
 
   return res.status(200).json({ code, whatsappUrl });
 };
