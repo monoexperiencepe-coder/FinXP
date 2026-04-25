@@ -853,12 +853,53 @@ function parseMonthExpenseQuery(text) {
   return null;
 }
 
+/**
+ * Insights breves solo para resumen mensual (sin IA).
+ * @param {Record<string, number>} byCat
+ * @param {number} total
+ * @returns {string[]}
+ */
+function buildMonthResumenInsightLines(byCat, total) {
+  const out = [];
+  if (total <= 0) return out;
+
+  let maxShare = 0;
+  let maxCatId = null;
+  for (const id of Object.keys(byCat)) {
+    const v = Number(byCat[id] || 0);
+    if (v <= 0) continue;
+    const share = v / total;
+    if (share > maxShare) {
+      maxShare = share;
+      maxCatId = id;
+    }
+  }
+  if (maxCatId != null && maxShare > 0.5) {
+    out.push(`👀 Estás gastando bastante en ${labelForCategoryId(maxCatId)}`);
+  }
+
+  if (total > 500) {
+    out.push('💡 Este mes ya llevas un gasto considerable');
+  }
+
+  const comida = Number(byCat.comida || 0);
+  const transporte = Number(byCat.transporte || 0);
+  if (comida > transporte) {
+    out.push('🍔 Estás gastando más en comida que en transporte');
+  }
+
+  return out;
+}
+
 async function buildResumenMesMessage(userId, mesKey) {
   const byCat = await getMonthTotalsByCategory(userId, mesKey);
   const total = Object.values(byCat).reduce((s, v) => s + v, 0);
   if (total <= 0) return MSG_SIN_GASTOS_MES;
   const lines = categoryLinesFromByCat(byCat);
-  return `Resumen del mes 👇\n\n${lines.join('\n')}\n\nTotal: S/${formatPen(total)} 💸`;
+  const body = `Resumen del mes 👇\n\n${lines.join('\n')}\n\nTotal: S/${formatPen(total)} 💸`;
+  const insights = buildMonthResumenInsightLines(byCat, total);
+  if (insights.length === 0) return body;
+  return `${body}\n\n${insights.join('\n')}`;
 }
 
 async function buildCuantoMesTotalMessage(userId, mesKey) {
