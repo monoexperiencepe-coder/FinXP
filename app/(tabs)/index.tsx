@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, RadialGradient as SvgRadialGradient, Stop } from 'react-native-svg';
@@ -20,8 +32,18 @@ import {
   type JarvisMissionStep,
   type JarvisMissionStepId,
 } from '@/lib/jarvisMissions';
+import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
+
+function whatsappLinkCodeApiUrl(): string {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}/api/whatsapp-link-code`;
+  }
+  const base = process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/$/, '');
+  if (base) return `${base}/api/whatsapp-link-code`;
+  return '/api/whatsapp-link-code';
+}
 
 /* ────────────────────────────────────────────────────────────────────────────── */
 
@@ -181,6 +203,8 @@ export default function HomeScreen() {
   const [toastVisible, setToastVisible] = useState(false);
   const [jarvisSkipped, setJarvisSkipped] = useState<JarvisMissionStepId[]>([]);
   const [jarvisLoaded, setJarvisLoaded] = useState(false);
+  const [asistenteWhatsappLoading, setAsistenteWhatsappLoading] = useState(false);
+  const asistenteWhatsappLock = useRef(false);
 
   useEffect(() => {
     if (session) {
@@ -210,6 +234,51 @@ export default function HomeScreen() {
   const handleFirstWalletComplete = useCallback(() => {
     setFirstWalletModalOpen(false);
     setExpenseSheetOpen(true);
+  }, []);
+
+  const handleAsistenteWhatsapp = useCallback(async () => {
+    if (asistenteWhatsappLock.current) return;
+    asistenteWhatsappLock.current = true;
+    setAsistenteWhatsappLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        Alert.alert('WhatsApp', 'Iniciá sesión para vincular tu asistente por WhatsApp.');
+        return;
+      }
+      const res = await fetch(whatsappLinkCodeApiUrl(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const text = await res.text();
+      let data: { whatsappUrl?: string; error?: string } = {};
+      try {
+        data = text ? (JSON.parse(text) as { whatsappUrl?: string; error?: string }) : {};
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        Alert.alert('WhatsApp', data.error || `No se pudo generar el código (${res.status})`);
+        return;
+      }
+      const url = data.whatsappUrl;
+      if (typeof url !== 'string' || !url) {
+        Alert.alert('WhatsApp', 'Respuesta inesperada del servidor.');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Intentá de nuevo en un rato.';
+      Alert.alert('WhatsApp', msg);
+    } finally {
+      asistenteWhatsappLock.current = false;
+      setAsistenteWhatsappLoading(false);
+    }
   }, []);
 
   const handleFirstWalletSkip = useCallback(async () => {
@@ -622,14 +691,25 @@ export default function HomeScreen() {
 
           {/* ── BOTONES DE ACCIÓN ── */}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
-            {[
-              { label: 'Ver gastos', emoji: '📊', accent: '#7C3AED', onPress: () => router.push('/(tabs)/gastos' as any) },
-              { label: 'Asistente IA', emoji: '🤖', accent: '#00D4FF', onPress: () => {} },
-              { label: 'Conectar banco', emoji: '🏦', accent: '#4DF2B1', onPress: () => {} },
-            ].map((btn) => (
+            {(
+              [
+                { label: 'Ver gastos', emoji: '📊', accent: '#7C3AED', onPress: () => router.push('/(tabs)/gastos' as any) },
+                {
+                  label: 'Asistente IA',
+                  emoji: '🤖',
+                  accent: '#00D4FF',
+                  onPress: () => { void handleAsistenteWhatsapp(); },
+                  loading: asistenteWhatsappLoading,
+                },
+                { label: 'Conectar banco', emoji: '🏦', accent: '#4DF2B1', onPress: () => {} },
+              ] as const
+            ).map((btn) => {
+              const loading = 'loading' in btn && btn.loading;
+              return (
               <Pressable
                 key={btn.label}
                 onPress={btn.onPress}
+                disabled={!!loading}
                 style={{
                   flex: 1,
                   backgroundColor: isDark ? `${btn.accent}11` : T.card,
@@ -638,6 +718,7 @@ export default function HomeScreen() {
                   borderColor: isDark ? `${btn.accent}30` : T.glassBorder,
                   paddingVertical: 10,
                   alignItems: 'center', gap: 4,
+                  opacity: loading ? 0.75 : 1,
                   ...(isDark ? {
                     shadowColor: btn.accent,
                     shadowOffset: { width: 0, height: 2 },
@@ -646,12 +727,16 @@ export default function HomeScreen() {
                     elevation: 6,
                   } : {}),
                 }}>
+                {loading ? (
+                  <ActivityIndicator size="small" color={btn.accent} />
+                ) : (
                 <Text style={{ fontSize: 18 }}>{btn.emoji}</Text>
+                )}
                 <Text style={{ fontFamily: Font.manrope500, color: isDark ? `${btn.accent}CC` : T.textSecondary, fontSize: 10, textAlign: 'center' }}>
                   {btn.label}
                 </Text>
               </Pressable>
-            ))}
+            ); })}
           </View>
 
           {/* ── TOP 3 CATEGORÍAS ── */}
