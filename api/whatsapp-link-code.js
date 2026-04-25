@@ -1,5 +1,5 @@
 /**
- * Genera un código de 6 dígitos para vincular WhatsApp (whatsapp_link_codes) y devuelve wa.me.
+ * Genera código de vínculo WhatsApp o devuelve chat directo si ya está vinculado.
  * POST: accessToken en body o Authorization: Bearer.
  * Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, WHATSAPP_BOT_NUMBER
  * No toca api/chat.js.
@@ -78,6 +78,21 @@ module.exports = async function handler(req, res) {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
 
+  const { data: existingLink, error: linkErr } = await supabaseService
+    .from('whatsapp_links')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (linkErr) {
+    console.error('[whatsapp-link-code] check linked', linkErr);
+    return res.status(500).json({ error: 'No se pudo validar la vinculación actual' });
+  }
+
+  if (existingLink?.id) {
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${waDigits}`;
+    return res.status(200).json({ linked: true, whatsappUrl });
+  }
+
   const { error: delErr } = await supabaseService
     .from('whatsapp_link_codes')
     .delete()
@@ -112,7 +127,7 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'No se pudo generar un código único' });
   }
 
-  const whatsappUrl = `https://wa.me/${waDigits}?text=${encodeURIComponent(`VINCULAR ${code}`)}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${waDigits}&text=${encodeURIComponent(`VINCULAR ${code}`)}`;
 
-  return res.status(200).json({ code, whatsappUrl });
+  return res.status(200).json({ linked: false, code, whatsappUrl });
 };

@@ -268,7 +268,7 @@ export default function HomeScreen() {
       });
       const text = await res.text();
       console.log('[Asistente IA] fetch response', { status: res.status, responseText: text });
-      let data: { whatsappUrl?: string; error?: string } = {};
+      let data: { linked?: boolean; code?: string; whatsappUrl?: string; error?: string } = {};
       let parseErr: Error | null = null;
       try {
         data = text ? (JSON.parse(text) as { whatsappUrl?: string; error?: string }) : {};
@@ -288,6 +288,11 @@ export default function HomeScreen() {
       if (typeof url !== 'string' || !url) {
         Alert.alert('WhatsApp', `Respuesta inesperada del servidor.\n\n${text.slice(0, 400)}`);
         return;
+      }
+      if (data.linked === true) {
+        console.log('[Asistente IA] linked user -> open direct WhatsApp');
+      } else if (data.linked === false) {
+        console.log('[Asistente IA] unlinked user -> open WhatsApp with code');
       }
       console.log('[Asistente IA] openURL', { whatsappUrl: url });
       await Linking.openURL(url);
