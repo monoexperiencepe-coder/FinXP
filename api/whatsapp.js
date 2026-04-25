@@ -291,8 +291,14 @@ function cleanDescriptionText(text) {
 
 function detectCategoryInfo(textLower) {
   const rules = [
-    { id: 'comida', label: 'comida', keys: ['comida', 'almuerzo', 'desayuno', 'cena', 'restaurante', 'menu', 'menú', 'pollo', 'cafe', 'café'] },
-    { id: 'transporte', label: 'transporte', keys: ['taxi', 'uber', 'bus', 'pasaje', 'transporte', 'gasolina'] },
+    {
+      id: 'comida',
+      label: 'comida',
+      keys: ['comida', 'almuerzo', 'desayuno', 'cena', 'restaurante', 'menu', 'menú', 'pollo', 'hamburguesa'],
+    },
+    { id: 'transporte', label: 'transporte', keys: ['taxi', 'uber', 'movilidad', 'combi', 'pasaje', 'transporte'] },
+    { id: 'transferencia', label: 'transferencia', keys: ['yape', 'plin', 'transferencia'] },
+    { id: 'compras', label: 'compras', keys: ['mercado', 'bodega', 'tienda'] },
     { id: 'vivienda', label: 'vivienda', keys: ['alquiler', 'renta', 'departamento', 'vivienda'] },
     { id: 'salud', label: 'salud', keys: ['salud', 'farmacia', 'medicina', 'doctor', 'clinica'] },
     { id: 'servicios', label: 'servicios', keys: ['luz', 'agua', 'internet', 'telefono', 'servicio'] },
@@ -310,6 +316,8 @@ function categoryEmoji(categoryId) {
   const map = {
     comida: '🍔',
     transporte: '🚌',
+    transferencia: '💸',
+    compras: '🛒',
     vivienda: '🏠',
     salud: '💊',
     servicios: '💡',
@@ -330,7 +338,7 @@ function parseExpenseFromText(text) {
   const hasExpenseVerb = /(gaste|gast[eé]|pague|pagu[eé]|compre|compr[eé])/.test(lower);
   const hasCurrencyHint = /(s\/|sol|soles|pen)/.test(lower);
   const hasCategoryHint =
-    /(comida|almuerzo|taxi|uber|transporte|farmacia|internet|luz|agua|cine|alquiler|restaurante)/.test(lower);
+    /(comida|almuerzo|taxi|uber|movilidad|combi|pasaje|yape|plin|transferencia|mercado|bodega|tienda|farmacia|internet|luz|agua|cine|alquiler|restaurante|pollo|hamburguesa)/.test(lower);
 
   const looksLikeExpense = hasExpenseVerb || (amountMatch && (hasCurrencyHint || hasCategoryHint || lower.split(/\s+/).length >= 2));
   if (!looksLikeExpense) return { kind: 'none' };
@@ -350,6 +358,58 @@ function parseExpenseFromText(text) {
     categoryLabel,
     comercio: description.slice(0, 80),
   };
+}
+
+function lineHasDigit(s) {
+  return /\d/.test(String(s || ''));
+}
+
+/**
+ * Parte una línea en posibles gastos: primero `;`, luego `,`, luego ` y `.
+ * Solo divide cuando hay 2+ trozos y cada trozo trae al menos un dígito (evita partir frases normales).
+ */
+function expandExpenseSegments(line) {
+  const t = String(line || '').trim();
+  if (!t) return [];
+
+  const bySemi = t.split(/\s*;\s*/).map((s) => s.trim()).filter(Boolean);
+  if (bySemi.length > 1 && bySemi.every(lineHasDigit)) {
+    return bySemi.flatMap((s) => expandExpenseSegments(s));
+  }
+
+  const byComma = t.split(/\s*,\s*/).map((s) => s.trim()).filter(Boolean);
+  if (byComma.length > 1 && byComma.every(lineHasDigit)) {
+    return byComma.flatMap((s) => expandExpenseSegments(s));
+  }
+
+  const byY = t.split(/\s+y\s+/i).map((s) => s.trim()).filter(Boolean);
+  if (byY.length > 1 && byY.every(lineHasDigit)) {
+    return byY.flatMap((s) => expandExpenseSegments(s));
+  }
+
+  return [t];
+}
+
+function parseMultipleExpensesFromText(text) {
+  const rawLines = String(text || '')
+    .split(/\r?\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const lines = rawLines.length > 0 ? rawLines : [String(text || '').trim()].filter(Boolean);
+
+  const chunks = lines.flatMap((ln) => expandExpenseSegments(ln));
+
+  const valid = [];
+  let hasMissingAmount = false;
+  for (const chunk of chunks) {
+    const parsed = parseExpenseFromText(chunk);
+    if (parsed.kind === 'expense') {
+      valid.push(parsed);
+    } else if (parsed.kind === 'missing_amount') {
+      hasMissingAmount = true;
+    }
+  }
+  return { valid, hasMissingAmount };
 }
 
 function formatPen(amount) {
@@ -413,6 +473,23 @@ async function getTodaySpentByCategory(userId, categoryId) {
   return (data || []).reduce((s, r) => s + Number(r.importe || 0), 0);
 }
 
+async function getTodayTotalSpent(userId) {
+  const supabase = getServiceSupabase();
+  if (!supabase) return 0;
+  const { startIso, endIso } = dayBoundsLocal(new Date());
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('importe')
+    .eq('user_id', userId)
+    .gte('fecha', startIso)
+    .lt('fecha', endIso);
+  if (error) {
+    console.error('[whatsapp] today total sum error', error);
+    return 0;
+  }
+  return (data || []).reduce((s, r) => s + Number(r.importe || 0), 0);
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
     const mode = getQueryParam(req.query, 'hub.mode');
@@ -457,18 +534,23 @@ module.exports = async function handler(req, res) {
               await sendWhatsappTextMessage(waFrom, MSG_REQUIERE_VINCULO);
               return res.status(200).json({ ok: true });
             }
-            const parsed = parseExpenseFromText(textBody);
-            if (parsed.kind === 'missing_amount') {
+            const batch = parseMultipleExpensesFromText(textBody);
+            if (batch.valid.length === 0 && batch.hasMissingAmount) {
               await sendWhatsappTextMessage(waFrom, MSG_FALTA_MONTO);
               return res.status(200).json({ ok: true });
             }
-            if (parsed.kind === 'expense') {
+            if (batch.valid.length > 0) {
               try {
-                await saveExpenseFromWhatsapp(linkedUserId, parsed);
-                const todayByCategory = await getTodaySpentByCategory(linkedUserId, parsed.categoryId);
+                for (const expense of batch.valid) {
+                  await saveExpenseFromWhatsapp(linkedUserId, expense);
+                }
+                const summaryLines = batch.valid.map(
+                  (e) => `• S/${formatPen(e.amount)} en ${e.categoryLabel}`,
+                );
+                const todayTotal = await getTodayTotalSpent(linkedUserId);
                 await sendWhatsappTextMessage(
                   waFrom,
-                  `Listo 👍 guardé S/${formatPen(parsed.amount)} en ${parsed.categoryLabel}\nHoy ya vas S/${formatPen(todayByCategory)} en ${parsed.categoryLabel} ${categoryEmoji(parsed.categoryId)}`,
+                  `Listo 👍 guardé:\n${summaryLines.join('\n')}\n\nHoy ya vas S/${formatPen(todayTotal)} en total.`,
                 );
               } catch (saveErr) {
                 console.error('[whatsapp] save expense error', saveErr);
