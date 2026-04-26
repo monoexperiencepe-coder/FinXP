@@ -20,11 +20,11 @@ import {
 
 import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme, lightTheme } from '@/constants/theme';
-import * as db from '@/lib/database';
-import { createId } from '@/lib/ids';
-import { markOnboardingComplete, writeDarkModeCache } from '@/lib/preferences';
-import { markPremiumTeaserOnboardingComplete } from '@/lib/premiumTeaserSchedule';
-import { useAuthStore } from '@/store/useAuthStore';
+import {
+  writeDarkModeCache,
+  writeOnboardingCompletedLocal,
+  writeOnboardingDraftLocal,
+} from '@/lib/preferences';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
 
@@ -198,8 +198,7 @@ export default function OnboardingScreen() {
   const GASTOS_COL_COUNT = windowWidth >= 400 ? 4 : windowWidth >= 340 ? 3 : 2;
   const gastosColWidth =
     (gastosGridInnerW - GASTOS_COL_GAP_H * (GASTOS_COL_COUNT - 1)) / GASTOS_COL_COUNT;
-  const { user } = useAuthStore();
-  const { loadFromSupabase, profile } = useFinanceStore();
+  const { profile } = useFinanceStore();
   const statCardsStacked = windowWidth < 420;
   const statCardEnterAnim = useRef(
     ONBOARDING_STAT_CARDS.map(() => ({
@@ -502,78 +501,45 @@ export default function OnboardingScreen() {
 
   // ── handleFinish ─────────────────────────────────────────────────────────────
   const handleFinish = async () => {
-    if (!user) { router.replace('/(tabs)' as any); return; }
     if (selectedIncomeSourceIds.length === 0) return;
     setFinishing(true);
     try {
       const nombreGuardado = nombreUsuario.trim() || 'Usuario';
       const themeMode: 'light' | 'dark' = isDarkMode ? 'dark' : 'light';
-      await db.updateProfile(user.id, {
-        nombre_usuario:     nombreGuardado,
-        moneda_principal:   moneda,
-        tipo_de_cambio:     TIPO_CAMBIO_DEFAULT,
-        metodos_de_pago:    selectedPaymentMethods,
-        bancos_disponibles: selectedBanks,
-        onboarding_done:    true,
-        theme:              themeMode,
+      const selectedIncomeCats = incomeSourceOptions.filter((c) => selectedIncomeSourceIds.includes(c.id));
+
+      // Fase 2: solo persistencia local (sin tocar Supabase aún).
+      await writeOnboardingCompletedLocal(true);
+      await writeOnboardingDraftLocal({
+        nombreUsuario: nombreGuardado,
+        monedaPrincipal: moneda,
+        tipoDeCambio: TIPO_CAMBIO_DEFAULT,
+        metodosDePago: selectedPaymentMethods,
+        bancosDisponibles: selectedBanks,
+        lifeSituation,
+        salarioRango,
+        ingresoAprox: Number.parseFloat(ingresoAprox) || null,
+        categoriasGasto: categoriasList,
+        categoriasIngreso: selectedIncomeCats.map((c, i) => ({
+          id: c.id,
+          nombre: c.nombre,
+          emoji: c.emoji,
+          orden: i + 1,
+        })),
+        onboardingDoneLocalAt: new Date().toISOString(),
       });
 
-      useFinanceStore.setState({ theme: themeMode });
-      void writeDarkModeCache(themeMode);
-
-      await loadFromSupabase();
-
       useFinanceStore.setState((state) => ({
-        profile: {
-          ...state.profile,
-          nombreUsuario:     nombreGuardado,
-          monedaPrincipal:   moneda,
-          tipoDeCambio:      TIPO_CAMBIO_DEFAULT,
-          metodosDePago:     selectedPaymentMethods.map((n) => ({ id: createId(), nombre: n, activo: true })),
-          bancosDisponibles: selectedBanks,
-        },
+        ...state,
         theme: themeMode,
       }));
-
-      const { supabase } = await import('@/lib/supabase');
-      const { data: { session } } = await supabase.auth.getSession();
-      const uid = session?.user?.id ?? user.id;
-
-      // Guardar categorías de GASTOS
-      try {
-        await supabase.from('user_categories').delete().eq('user_id', uid).eq('tipo', 'gasto');
-        for (let i = 0; i < categoriasList.length; i++) {
-          const cat = categoriasList[i];
-          await supabase.from('user_categories').insert({ user_id: uid, nombre: cat.nombre, emoji: cat.emoji, tipo: 'gasto', orden: i + 1 });
-        }
-      } catch (e) { console.error('Error bloque gastos:', e); }
-
-      // Guardar categorías de INGRESOS
-      try {
-        await supabase.from('user_categories').delete().eq('user_id', uid).eq('tipo', 'ingreso');
-        const selectedIncomeCats = incomeSourceOptions.filter((c) => selectedIncomeSourceIds.includes(c.id));
-        for (let i = 0; i < selectedIncomeCats.length; i++) {
-          const cat = selectedIncomeCats[i];
-          await supabase.from('user_categories').insert({ user_id: uid, nombre: cat.nombre, emoji: cat.emoji, tipo: 'ingreso', orden: i + 1 });
-        }
-      } catch (e) { console.error('Error bloque ingresos:', e); }
-
-      await markOnboardingComplete(uid);
-      void markPremiumTeaserOnboardingComplete();
-      useFinanceStore.setState({ categories: [], incomeCategories: [] });
-      const { loadFromSupabase: sync, loadCategories, loadIncomeCategories } = useFinanceStore.getState();
-      await sync();
-      await loadCategories();
-      if (typeof loadIncomeCategories === 'function') await loadIncomeCategories();
+      void writeDarkModeCache(themeMode);
 
       setFinishing(false);
-      setShowLoader(true);
+      router.replace('/(auth)/register' as any);
     } catch (e) {
       console.error('Error in handleFinish:', e);
       setFinishing(false);
-      await markOnboardingComplete(user?.id ?? null);
-      void markPremiumTeaserOnboardingComplete();
-      router.replace('/(tabs)/perfil' as any);
     }
   };
 

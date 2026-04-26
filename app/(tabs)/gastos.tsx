@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { APP_CONTENT_MAX_WIDTH } from '@/constants/layout';
 import { getExpenseCategoryById } from '@/constants/expenseCategories';
 import { Font } from '@/constants/typography';
 import { modalOverlayScrim, onPrimaryGradient } from '@/constants/theme';
@@ -23,7 +24,7 @@ import { MOOD_EMOJI } from '@/lib/mood';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { Expense } from '@/types';
 
-const MAX_W = 390;
+const MAX_W = APP_CONTENT_MAX_WIDTH;
 
 type VistaTab = 'mes' | 'rango' | 'total';
 

@@ -27,8 +27,7 @@ import {
   clearLastLogin,
   readDarkModeCache,
   readLastLoginMs,
-  readOnboardingLocal,
-  readOnboardingRemoteAndSync,
+  readOnboardingCompletedLocal,
 } from '@/lib/preferences';
 import { supabase } from '@/lib/supabase';
 import { useAppShellStore } from '@/store/useAppShellStore';
@@ -178,34 +177,23 @@ export default function RootLayout() {
     const inOnboarding = root === 'onboarding';
 
     const checkOnboarding = async () => {
-      if (!session && !inAuthGroup) {
-        router.replace('/(auth)/login' as any);
+      // Fase 1: sin sesión, decidir onboarding/login por flag local.
+      if (!session) {
+        const onboardingCompleted = await readOnboardingCompletedLocal();
+        if (!onboardingCompleted) {
+          if (!inOnboarding) router.replace('/onboarding' as any);
+          return;
+        }
+        if (!inAuthGroup) router.replace('/(auth)/login' as any);
         return;
       }
 
-      if (session && inAuthGroup) {
+      // Con sesión válida: siempre tabs (manteniendo la validación de sesión fantasma en el efecto previo).
+      if (session && (inAuthGroup || inOnboarding)) {
         if (postLoginTransitionPending) {
           return;
         }
-        if (await readOnboardingLocal()) {
-          router.replace('/(tabs)' as any);
-          return;
-        }
-        const remote = await readOnboardingRemoteAndSync(session.user.id);
-        if (remote === true) {
-          router.replace('/(tabs)' as any);
-        } else {
-          router.replace('/onboarding' as any);
-        }
-        return;
-      }
-
-      if (session && !inOnboarding && !inAuthGroup) {
-        if (!(await readOnboardingLocal())) {
-          const remote = await readOnboardingRemoteAndSync(session.user.id);
-          if (remote === false) router.replace('/onboarding' as any);
-          // si remote === null (fallo de red), no redirigir
-        }
+        router.replace('/(tabs)' as any);
       }
     };
 

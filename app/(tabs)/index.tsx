@@ -12,6 +12,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+
+const INSIGHT_INTERVAL_MS = 3800;
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, RadialGradient as SvgRadialGradient, Stop } from 'react-native-svg';
@@ -19,7 +21,9 @@ import Svg, { Circle, Defs, G, RadialGradient as SvgRadialGradient, Stop } from 
 import { ExpenseFullSheet } from '@/components/ExpenseFullSheet';
 import { FirstExpenseWalletModal, markFirstExpenseWalletSkipped, shouldShowFirstExpenseWallet } from '@/components/FirstExpenseWalletModal';
 import { IncomeSheet } from '@/components/IncomeSheet';
+import { WaBotPromoModal } from '@/components/WaBotPromoModal';
 import { GradientView } from '@/components/ui/GradientView';
+import { APP_CONTENT_MAX_WIDTH } from '@/constants/layout';
 import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
@@ -32,6 +36,7 @@ import {
   type JarvisMissionStep,
   type JarvisMissionStepId,
 } from '@/lib/jarvisMissions';
+import { markWaPromoShown, readWaPromoShown } from '@/lib/preferences';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
@@ -185,7 +190,7 @@ export default function HomeScreen() {
   const { T, isDark } = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const maxW = Math.min(width, 390);
+  const maxW = Math.min(width, APP_CONTENT_MAX_WIDTH);
 
   const expenses    = useFinanceStore((s) => s.expenses);
   const incomes     = useFinanceStore((s) => s.incomes);
@@ -205,6 +210,13 @@ export default function HomeScreen() {
   const [jarvisLoaded, setJarvisLoaded] = useState(false);
   const [asistenteWhatsappLoading, setAsistenteWhatsappLoading] = useState(false);
   const asistenteWhatsappLock = useRef(false);
+  const [waBotPromoVisible, setWaBotPromoVisible] = useState(false);
+  const waPromoChecked = useRef(false);
+
+  /* ── Announcer de insights ── */
+  const [insightIdx, setInsightIdx] = useState(0);
+  const insightFade = useRef(new Animated.Value(1)).current;
+  const insightSlide = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (session) {
@@ -223,6 +235,40 @@ export default function HomeScreen() {
     const t = setTimeout(() => setToastVisible(true), 1800);
     return () => clearTimeout(t);
   }, []);
+
+
+  /* ── WhatsApp bot promo: aparece 2 s después del primer acceso si no está vinculado ── */
+  useEffect(() => {
+    if (!session || waPromoChecked.current) return;
+    waPromoChecked.current = true;
+
+    const t = setTimeout(async () => {
+      try {
+        const alreadyShown = await readWaPromoShown();
+        if (alreadyShown) return;
+
+        const { data: { session: freshSession } } = await supabase.auth.getSession();
+        const token = freshSession?.access_token;
+        if (!token) return;
+
+        const apiUrl = whatsappLinkCodeApiUrl();
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { linked?: boolean };
+        if (data.linked === false) {
+          await markWaPromoShown();
+          setWaBotPromoVisible(true);
+        }
+      } catch {
+        /* silencioso: el promo no es crítico */
+      }
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [session]);
 
   /* ── Expense flow ── */
   const openExpenseFlow = useCallback(async () => {
@@ -312,6 +358,11 @@ export default function HomeScreen() {
     setExpenseSheetOpen(true);
   }, []);
 
+  const handleWaPromoConnect = useCallback(() => {
+    setWaBotPromoVisible(false);
+    void handleAsistenteWhatsapp();
+  }, [handleAsistenteWhatsapp]);
+
   /* ── Derived data ── */
   const initial   = useMemo(() => (profile.nombreUsuario?.trim()?.charAt(0) || 'U').toUpperCase(), [profile.nombreUsuario]);
   const mesActual = useMemo(() => currentYearMonth(), []);
@@ -329,6 +380,19 @@ export default function HomeScreen() {
     [expenses, todayKey],
   );
   const weekSpent = useMemo(() => getWeekSpent(), [getWeekSpent, expenses]);
+
+  /* Top 4 categorías de HOY (para resumen rápido en home) */
+  const todayTopCats = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const e of expenses) {
+      if (toDateKey(new Date(e.fecha)) !== todayKey) continue;
+      map[e.categoria] = (map[e.categoria] || 0) + e.importe;
+    }
+    return Object.entries(map)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([cat, total]) => ({ cat, total }));
+  }, [expenses, todayKey]);
 
   /* Top 3 categorías del mes */
   const topCats = useMemo(() => {
@@ -357,6 +421,59 @@ export default function HomeScreen() {
   };
   const catEmoji = (id: string) => CAT_EMOJI[id] ?? '💰';
   const catLabel = (id: string) => id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' ');
+  /* Batería de insights para el announcer (basados en datos reales de hoy) */
+  const todayInsights = useMemo<{ icon: string; text: string }[]>(() => {
+    if (todaySpent <= 0 || todayTopCats.length === 0) {
+      return [
+        { icon: '💡', text: 'Registra tu primer gasto del día para ver tu análisis en vivo.' },
+      ];
+    }
+
+    const out: { icon: string; text: string }[] = [];
+    const fmt = (n: number) => formatMoney(n, profile.monedaPrincipal);
+
+    // 1. Top categoría + su porcentaje
+    const top = todayTopCats[0];
+    const topPct = Math.round((top.total / todaySpent) * 100);
+    if (topPct >= 50) {
+      out.push({ icon: '👀', text: `${topPct}% del gasto de hoy es solo en ${top.cat} (${fmt(top.total)})` });
+    } else {
+      out.push({ icon: catEmoji(top.cat), text: `Tu mayor gasto hoy: ${top.cat} con ${topPct}% del total (${fmt(top.total)})` });
+    }
+
+    // 2. Comparativa comida vs transporte
+    const comida = todayTopCats.find((x) => x.cat === 'comida')?.total ?? 0;
+    const transporte = todayTopCats.find((x) => x.cat === 'transporte')?.total ?? 0;
+    if (comida > 0 && transporte > 0) {
+      const diff = Math.abs(comida - transporte);
+      if (comida > transporte) {
+        out.push({ icon: '🍔', text: `Hoy gastás ${Math.round((comida / transporte - 1) * 100)}% más en comida que en transporte (+${fmt(diff)})` });
+      } else {
+        out.push({ icon: '🚌', text: `Hoy gastás ${Math.round((transporte / comida - 1) * 100)}% más en transporte que en comida (+${fmt(diff)})` });
+      }
+    } else if (comida > 0 && comida === top.total) {
+      out.push({ icon: '🍔', text: `Comida lidera tus gastos hoy con ${topPct}% del total` });
+    }
+
+    // 3. Distribución
+    if (todayTopCats.length >= 3) {
+      const otherPct = 100 - topPct;
+      out.push({ icon: '📊', text: `Tus gastos de hoy se dividen en ${todayTopCats.length} categorías — el ${otherPct}% restante está bien distribuido` });
+    }
+
+    // 4. Promedio por categoría
+    const avg = Math.round(todaySpent / todayTopCats.length);
+    out.push({ icon: '📈', text: `Promedio de gasto por categoría hoy: ${fmt(avg)}` });
+
+    // 5. Segunda categoría si existe
+    if (todayTopCats.length >= 2) {
+      const sec = todayTopCats[1];
+      const secPct = Math.round((sec.total / todaySpent) * 100);
+      out.push({ icon: catEmoji(sec.cat), text: `Segunda categoría del día: ${sec.cat} con ${secPct}% (${fmt(sec.total)})` });
+    }
+
+    return out.length > 0 ? out : [{ icon: '✅', text: 'Buen control hoy. Seguí así.' }];
+  }, [todaySpent, todayTopCats, profile.monedaPrincipal]);
 
   /* Missions summary */
   const pendingMissions  = useMemo(() => missions.filter((m) => !m.completada), [missions]);
@@ -396,6 +513,26 @@ export default function HomeScreen() {
     },
     [openExpenseFlow, router],
   );
+
+  /* Ciclo del announcer: fade-out + slide-up → cambiar texto → fade-in */
+  useEffect(() => {
+    if (todayInsights.length <= 1) return;
+    const total = todayInsights.length;
+    const cycle = setInterval(() => {
+      Animated.parallel([
+        Animated.timing(insightFade,  { toValue: 0, duration: 280, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(insightSlide, { toValue: -10, duration: 280, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]).start(() => {
+        setInsightIdx((prev) => (prev + 1) % total);
+        insightSlide.setValue(10);
+        Animated.parallel([
+          Animated.timing(insightFade,  { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(insightSlide, { toValue: 0, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        ]).start();
+      });
+    }, INSIGHT_INTERVAL_MS);
+    return () => clearInterval(cycle);
+  }, [todayInsights.length]);
 
   /* Toast message */
   const toastMsg = useMemo(() => {
@@ -531,24 +668,36 @@ export default function HomeScreen() {
                       ? <WebDonut usedPct={pctUsado} arcColor={arcColorDonut} trackColor={donutTrackColor} />
                       : <NativeDonut usedPct={pctUsado} arcColor={arcColorDonut} trackColor={donutTrackColor} />}
                   </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 17, textAlign: 'center' }}>
-                      {formatMoney(gastadoMes, profile.monedaPrincipal)}
-                    </Text>
-                    <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 9, marginTop: 1 }}>
-                      GASTADO
-                    </Text>
-                    {limiteMes > 0 && (
-                      <View style={{
-                        marginTop: 4, paddingHorizontal: 6, paddingVertical: 2,
-                        backgroundColor: isDark ? 'rgba(124,58,237,0.3)' : T.primaryBg,
-                        borderRadius: 6, borderWidth: 1,
-                        borderColor: isDark ? 'rgba(124,58,237,0.5)' : T.primaryBorder,
-                      }}>
-                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#9D5FF0' : T.primary, fontSize: 9 }}>
-                          {Math.round(pctUsado)}% del límite
+                  <View style={{ alignItems: 'center', paddingHorizontal: 6 }}>
+                    {limiteMes > 0 ? (
+                      /* ── Con presupuesto: muestra % ── */
+                      <>
+                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 20, lineHeight: 22, textAlign: 'center', letterSpacing: -0.5 }}>
+                          {Math.round(pctUsado)}%
                         </Text>
-                      </View>
+                        <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 8, marginTop: 1, letterSpacing: 0.5 }}>
+                          DEL PRESUPUESTO
+                        </Text>
+                        <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 8, marginTop: 3, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>
+                          {formatMoney(gastadoMes, profile.monedaPrincipal)} / {formatMoney(limiteMes, profile.monedaPrincipal)}
+                        </Text>
+                      </>
+                    ) : (
+                      /* ── Sin presupuesto: promedio diario ── */
+                      <>
+                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 15, lineHeight: 18, textAlign: 'center', letterSpacing: -0.3 }} numberOfLines={1} adjustsFontSizeToFit>
+                          {formatMoney(
+                            gastadoMes > 0 ? gastadoMes / new Date().getDate() : 0,
+                            profile.monedaPrincipal,
+                          )}
+                        </Text>
+                        <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 8, marginTop: 1, letterSpacing: 0.5 }}>
+                          PROMEDIO/DÍA
+                        </Text>
+                        <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 8, marginTop: 3, textAlign: 'center' }}>
+                          {new Date().getDate()} días del mes
+                        </Text>
+                      </>
                     )}
                   </View>
                 </View>
@@ -609,57 +758,152 @@ export default function HomeScreen() {
                 marginBottom: 12,
               }} />
 
-              {/* Gamificación badges */}
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {[
-                  {
-                    icon: '🔥',
-                    label: 'RACHA',
-                    value: `${profile.rachaActual} días`,
-                    glow: '#FF5E7D',
-                    bg: isDark ? 'rgba(255,94,125,0.12)' : 'rgba(255,94,125,0.08)',
-                    border: isDark ? 'rgba(255,94,125,0.3)' : 'rgba(255,94,125,0.22)',
-                  },
-                  {
-                    icon: '🎖️',
-                    label: 'NIVEL',
-                    value: `${profile.nivel}`,
-                    glow: '#FFD700',
-                    bg: isDark ? 'rgba(255,215,0,0.1)' : 'rgba(184,134,11,0.1)',
-                    border: isDark ? 'rgba(255,215,0,0.3)' : 'rgba(184,134,11,0.22)',
-                  },
-                  {
-                    icon: '⚡',
-                    label: 'XP',
-                    value: `${profile.xpActual}`,
-                    glow: '#7C3AED',
-                    bg: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
-                    border: isDark ? 'rgba(124,58,237,0.4)' : 'rgba(124,58,237,0.22)',
-                  },
-                ].map((g) => (
-                  <View
-                    key={g.label}
-                    style={{
-                      flex: 1,
-                      alignItems: 'center',
-                      paddingVertical: 8,
-                      backgroundColor: g.bg,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: g.border,
-                      ...(isDark
-                        ? Platform.select({
-                          ios: { shadowColor: g.glow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 8 },
-                          android: { elevation: 4 },
-                          default: {},
-                        })
-                        : {}),
-                    }}>
-                    <Text style={{ fontSize: 18 }}>{g.icon}</Text>
-                    <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 15, marginTop: 2 }}>{g.value}</Text>
-                    <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.4)' : T.textMuted, fontSize: 9, letterSpacing: 1 }}>{g.label}</Text>
+              {/* ── Review diario ── */}
+              <View style={{ gap: 0 }}>
+                {/* Cabecera centrada */}
+                <View style={{ alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{
+                    fontFamily: Font.manrope600,
+                    color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted,
+                    fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4,
+                  }}>
+                    HOY
+                  </Text>
+                  <Text style={{
+                    fontFamily: Font.jakarta700,
+                    color: isDark ? '#FFFFFF' : T.textPrimary,
+                    fontSize: 26, lineHeight: 30, letterSpacing: -0.5,
+                  }}>
+                    {formatMoney(todaySpent, profile.monedaPrincipal)}
+                  </Text>
+                  <GradientView
+                    colors={isDark ? (['#7C3AED', '#00D4FF'] as const) : ([T.primary, T.primary] as const)}
+                    style={{ height: 2, borderRadius: 1, width: 40, marginTop: 6 }}
+                  />
+                </View>
+
+                {/* Filas de categorías */}
+                {todayTopCats.length > 0 ? (
+                  <View style={{ gap: 6 }}>
+                    {todayTopCats.map((it, idx) => {
+                      const barColors = isDark
+                        ? (['#7C3AED', '#00D4FF', '#4DF2B1', '#FF5E7D'] as const)
+                        : ([T.primary, T.primary, T.primary, '#FF5E7D'] as const);
+                      const accent = barColors[idx % 4];
+                      const pctOfToday = todaySpent > 0 ? Math.round((it.total / todaySpent) * 100) : 0;
+                      return (
+                        <View key={it.cat} style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 10,
+                          backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
+                          borderRadius: 10,
+                          paddingHorizontal: 10, paddingVertical: 7,
+                          borderLeftWidth: 2, borderLeftColor: accent,
+                          borderTopWidth: 1, borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
+                          borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
+                          borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
+                        }}>
+                          <Text style={{ fontSize: 16, width: 22, textAlign: 'center' }}>{catEmoji(it.cat)}</Text>
+                          <Text style={{
+                            fontFamily: Font.manrope600, color: T.textSecondary,
+                            fontSize: 12, flex: 1, textTransform: 'capitalize',
+                          }}>
+                            {it.cat}
+                          </Text>
+                          <Text style={{
+                            fontFamily: Font.jakarta700,
+                            color: isDark ? '#FFFFFF' : T.textPrimary,
+                            fontSize: 12,
+                          }}>
+                            {formatMoney(it.total, profile.monedaPrincipal)}
+                          </Text>
+                          <View style={{
+                            backgroundColor: isDark ? `${accent}30` : `${accent}20`,
+                            borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2,
+                          }}>
+                            <Text style={{ fontFamily: Font.manrope600, color: accent, fontSize: 9 }}>
+                              {pctOfToday}%
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
                   </View>
-                ))}
+                ) : (
+                  <View style={{ alignItems: 'center', paddingVertical: 10, gap: 4 }}>
+                    <Text style={{ fontSize: 20 }}>💡</Text>
+                    <Text style={{ fontFamily: Font.manrope500, color: T.textMuted, fontSize: 12, textAlign: 'center' }}>
+                      Aún no registras gastos hoy.{'\n'}Toca ⚡ para empezar.
+                    </Text>
+                  </View>
+                )}
+
+                {/* ── Announcer de insights ── */}
+                <View style={{ marginTop: 10 }}>
+                  {/* Header del announcer */}
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6,
+                  }}>
+                    <GradientView
+                      colors={isDark ? (['#7C3AED', '#00D4FF'] as const) : ([T.primary, T.primary] as const)}
+                      style={{ width: 3, height: 14, borderRadius: 2 }}
+                    />
+                    <Text style={{
+                      fontFamily: Font.manrope600,
+                      color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted,
+                      fontSize: 9, letterSpacing: 1.5,
+                    }}>
+                      ANÁLISIS EN VIVO
+                    </Text>
+                    {/* Dots de paginación */}
+                    <View style={{ flexDirection: 'row', gap: 3, marginLeft: 'auto' }}>
+                      {todayInsights.map((_, di) => (
+                        <View
+                          key={di}
+                          style={{
+                            width: di === insightIdx ? 12 : 4,
+                            height: 4, borderRadius: 2,
+                            backgroundColor: di === insightIdx
+                              ? (isDark ? '#9D5FF0' : T.primary)
+                              : (isDark ? 'rgba(255,255,255,0.18)' : 'rgba(124,58,237,0.18)'),
+                          }}
+                        />
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Cuerpo animado */}
+                  <Animated.View style={{
+                    opacity: insightFade,
+                    transform: [{ translateY: insightSlide }],
+                    flexDirection: 'row', alignItems: 'center', gap: 10,
+                    backgroundColor: isDark ? 'rgba(157,95,240,0.1)' : 'rgba(124,58,237,0.06)',
+                    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(157,95,240,0.28)' : 'rgba(124,58,237,0.16)',
+                    ...Platform.select({
+                      ios: { shadowColor: '#7C3AED', shadowOffset: { width: 0, height: 3 }, shadowOpacity: isDark ? 0.35 : 0, shadowRadius: 8 },
+                      android: {},
+                      web: isDark ? { boxShadow: '0 2px 12px rgba(124,58,237,0.2)' } as object : {},
+                    }),
+                  }}>
+                    <View style={{
+                      width: 30, height: 30, borderRadius: 9,
+                      backgroundColor: isDark ? 'rgba(157,95,240,0.22)' : 'rgba(124,58,237,0.1)',
+                      alignItems: 'center', justifyContent: 'center',
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(157,95,240,0.4)' : 'rgba(124,58,237,0.2)',
+                    }}>
+                      <Text style={{ fontSize: 15 }}>{todayInsights[insightIdx]?.icon ?? '💡'}</Text>
+                    </View>
+                    <Text style={{
+                      fontFamily: Font.manrope600,
+                      color: isDark ? '#D4C5FF' : T.textPrimary,
+                      fontSize: 12, flex: 1, lineHeight: 18,
+                    }}>
+                      {todayInsights[insightIdx]?.text ?? ''}
+                    </Text>
+                  </Animated.View>
+                </View>
               </View>
             </View>
           </GradientView>
@@ -762,6 +1006,49 @@ export default function HomeScreen() {
                 </Text>
               </Pressable>
             ); })}
+          </View>
+
+          {/* ── Progreso del jugador ── */}
+          <View style={{
+            flexDirection: 'row',
+            gap: 0,
+            marginBottom: 12,
+            borderRadius: 16,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(255,255,255,0.07)' : T.glassBorder,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : T.card,
+            ...Platform.select({
+              ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0.3 : 0.08, shadowRadius: 12 },
+              android: { elevation: isDark ? 6 : 2 },
+              web: { boxShadow: isDark ? '0 4px 16px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.06)' } as object,
+            }),
+          }}>
+            {[
+              { icon: '🔥', label: 'Racha', value: `${profile.rachaActual} d`, color: '#FF5E7D', accent: 'rgba(255,94,125,0.18)' },
+              { icon: '🎖️', label: 'Nivel',  value: `${profile.nivel}`,          color: '#FFD700', accent: 'rgba(255,215,0,0.12)' },
+              { icon: '⚡',  label: 'XP',     value: `${profile.xpActual}`,       color: '#9D5FF0', accent: 'rgba(157,95,240,0.15)' },
+            ].map((g, i, arr) => (
+              <View
+                key={g.label}
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  paddingVertical: 10,
+                  backgroundColor: isDark ? g.accent : 'transparent',
+                  borderRightWidth: i < arr.length - 1 ? 1 : 0,
+                  borderRightColor: isDark ? 'rgba(255,255,255,0.07)' : T.glassBorder,
+                  gap: 2,
+                }}>
+                <Text style={{ fontSize: 17 }}>{g.icon}</Text>
+                <Text style={{ fontFamily: Font.jakarta700, color: isDark ? g.color : T.textPrimary, fontSize: 14 }}>
+                  {g.value}
+                </Text>
+                <Text style={{ fontFamily: Font.manrope500, color: T.textMuted, fontSize: 9, letterSpacing: 0.8 }}>
+                  {g.label.toUpperCase()}
+                </Text>
+              </View>
+            ))}
           </View>
 
           {/* ── TOP 3 CATEGORÍAS ── */}
@@ -1062,6 +1349,11 @@ export default function HomeScreen() {
         />
         <ExpenseFullSheet open={expenseSheetOpen} onDismiss={() => setExpenseSheetOpen(false)} />
         <IncomeSheet open={incomeSheetOpen} onDismiss={() => setIncomeSheetOpen(false)} />
+        <WaBotPromoModal
+          visible={waBotPromoVisible}
+          onConnect={handleWaPromoConnect}
+          onDismiss={() => setWaBotPromoVisible(false)}
+        />
       </View>
     </SafeAreaView>
   );

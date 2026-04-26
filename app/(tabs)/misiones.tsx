@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { APP_CONTENT_MAX_WIDTH } from '@/constants/layout';
 import { GradientView } from '@/components/ui/GradientView';
 import { modalOverlayScrim, onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
@@ -72,7 +73,7 @@ export default function MisionesScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
-      <View style={{ flex: 1, maxWidth: 390, width: '100%', alignSelf: 'center' }}>
+      <View style={{ flex: 1, maxWidth: APP_CONTENT_MAX_WIDTH, width: '100%', alignSelf: 'center' }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 }}>

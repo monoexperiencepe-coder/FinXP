@@ -6,6 +6,7 @@ import { View } from 'react-native';
 import ChatIA from '@/components/ChatIA';
 import PremiumTeaser from '@/components/PremiumTeaser';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { APP_CONTENT_MAX_WIDTH } from '@/constants/layout';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import {
@@ -82,8 +83,10 @@ export default function TabLayout() {
   }, [preloaderComplete, lastSegment, showTeaser]);
 
   return (
-    <View style={{ flex: 1 }}>
-      <Tabs
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
+      {/* Columna centrada: evita UI desordenada en monitores anchos / web */}
+      <View style={{ flex: 1, width: '100%', maxWidth: APP_CONTENT_MAX_WIDTH, alignSelf: 'center' }}>
+        <Tabs
         screenOptions={{
           headerStyle: { backgroundColor: T.bg },
           headerTintColor: T.textPrimary,
@@ -149,6 +152,7 @@ export default function TabLayout() {
           }}
         />
       </Tabs>
+      </View>
       <ChatIA />
       <PremiumTeaser visible={showTeaser} onClose={() => setShowTeaser(false)} />
     </View>

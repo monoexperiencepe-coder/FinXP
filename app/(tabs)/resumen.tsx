@@ -15,6 +15,7 @@ import {
   onPrimaryGradient,
   savingsGradient,
 } from '@/constants/theme';
+import { APP_CONTENT_MAX_WIDTH } from '@/constants/layout';
 import { Font } from '@/constants/typography';
 import { useTheme } from '@/hooks/useTheme';
 import { formatMoney } from '@/lib/currency';
@@ -488,7 +489,7 @@ export default function ResumenScreen() {
         onApply={onApplyRango}
         initial={customPayload}
       />
-      <View style={{ flex: 1, maxWidth: 390, width: '100%', alignSelf: 'center' }}>
+      <View style={{ flex: 1, maxWidth: APP_CONTENT_MAX_WIDTH, width: '100%', alignSelf: 'center' }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 100 }}>

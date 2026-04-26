@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { APP_CONTENT_MAX_WIDTH } from '@/constants/layout';
 import { Font } from '@/constants/typography';
 import { avatarRingBorder, logoutRowStyle, onPrimaryGradient } from '@/constants/theme';
 import { GradientView } from '@/components/ui/GradientView';
@@ -379,7 +380,7 @@ export default function PerfilScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
-      <View style={{ flex: 1, maxWidth: 390, width: '100%', alignSelf: 'center' }}>
+      <View style={{ flex: 1, maxWidth: APP_CONTENT_MAX_WIDTH, width: '100%', alignSelf: 'center' }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 100 }}>

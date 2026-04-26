@@ -17,8 +17,11 @@ import { supabase } from '@/lib/supabase';
 
 export const STORAGE_KEYS = {
   ONBOARDING_DONE: 'ahorraya_onboarding_done',
+  ONBOARDING_COMPLETED: 'ahorraya_onboarding_completed',
+  ONBOARDING_DRAFT: 'ahorraya_onboarding_draft',
   LAST_LOGIN: 'ahorraya_last_login',
   DARK_MODE: 'ahorraya_dark_mode',
+  WA_PROMO_SHOWN: 'ahorraya_wa_promo_v1',
 } as const;
 
 /** Caché local rápido de onboarding. No es la fuente de verdad si hay sesión. */
@@ -30,6 +33,45 @@ export async function readOnboardingLocal(): Promise<boolean> {
 export async function writeOnboardingLocal(done: boolean): Promise<void> {
   if (done) await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_DONE, 'true');
   else await AsyncStorage.removeItem(STORAGE_KEYS.ONBOARDING_DONE);
+}
+
+/**
+ * Fase 1 del nuevo flujo de entrada:
+ * flag local desacoplado de Supabase para decidir onboarding/login sin sesión.
+ * Incluye fallback al flag legacy `ONBOARDING_DONE` para no romper usuarios existentes.
+ */
+export async function readOnboardingCompletedLocal(): Promise<boolean> {
+  const v = await AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING_COMPLETED);
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  // Compatibilidad hacia atrás (usuarios antiguos)
+  return readOnboardingLocal();
+}
+
+export async function writeOnboardingCompletedLocal(done: boolean): Promise<void> {
+  if (done) await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, 'true');
+  else await AsyncStorage.removeItem(STORAGE_KEYS.ONBOARDING_COMPLETED);
+}
+
+/**
+ * Borrador temporal del onboarding (Fase 2): se guarda local hasta que el usuario se registre.
+ */
+export async function writeOnboardingDraftLocal(data: unknown): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_DRAFT, JSON.stringify(data ?? null));
+}
+
+export async function readOnboardingDraftLocal<T = unknown>(): Promise<T | null> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING_DRAFT);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearOnboardingDraftLocal(): Promise<void> {
+  await AsyncStorage.removeItem(STORAGE_KEYS.ONBOARDING_DRAFT);
 }
 
 /**
@@ -92,4 +134,15 @@ export async function readDarkModeCache(): Promise<'dark' | 'light' | null> {
 
 export async function writeDarkModeCache(mode: 'dark' | 'light'): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEYS.DARK_MODE, mode === 'dark' ? 'true' : 'false');
+}
+
+/** True si el promo del bot de WhatsApp ya fue mostrado al usuario. */
+export async function readWaPromoShown(): Promise<boolean> {
+  const v = await AsyncStorage.getItem(STORAGE_KEYS.WA_PROMO_SHOWN);
+  return v === 'true';
+}
+
+/** Marca que el promo ya se mostró (no vuelve a aparecer). */
+export async function markWaPromoShown(): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.WA_PROMO_SHOWN, 'true');
 }
