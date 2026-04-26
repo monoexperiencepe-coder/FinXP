@@ -50,6 +50,38 @@ function whatsappLinkCodeApiUrl(): string {
   return '/api/whatsapp-link-code';
 }
 
+function buildWhatsappTargetsFromApiUrl(rawUrl: string): string[] {
+  const fallback = [rawUrl];
+  try {
+    const u = new URL(rawUrl);
+    const phone = (u.searchParams.get('phone') || '').replace(/\D/g, '');
+    const text = u.searchParams.get('text') || '';
+    if (!phone) return fallback;
+
+    const waScheme = `whatsapp://send?phone=${phone}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+    const waMe = `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+
+    // Orden pensado para iOS/Android: app nativa -> wa.me -> api.whatsapp.com
+    return [waScheme, waMe, rawUrl];
+  } catch {
+    return fallback;
+  }
+}
+
+async function openWhatsAppWithFallback(rawUrl: string): Promise<void> {
+  const targets = buildWhatsappTargetsFromApiUrl(rawUrl);
+  let lastErr: unknown = null;
+  for (const t of targets) {
+    try {
+      await Linking.openURL(t);
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw (lastErr instanceof Error ? lastErr : new Error('No se pudo abrir WhatsApp'));
+}
+
 /* ────────────────────────────────────────────────────────────────────────────── */
 
 /* ── Premium donut (nativo) — track según modo ── */
@@ -340,8 +372,8 @@ export default function HomeScreen() {
       } else if (data.linked === false) {
         console.log('[Asistente IA] unlinked user -> open WhatsApp with code');
       }
-      console.log('[Asistente IA] openURL', { whatsappUrl: url });
-      await Linking.openURL(url);
+      console.log('[Asistente IA] openURL with fallback', { whatsappUrl: url });
+      await openWhatsAppWithFallback(url);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[Asistente IA] catch', e);
