@@ -22,8 +22,12 @@ import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import {
   writeDarkModeCache,
+  clearOnboardingResumeStepLocal,
+  ONBOARDING_LAST_STEP_INDEX,
+  readOnboardingResumeStepLocal,
   writeOnboardingCompletedLocal,
   writeOnboardingDraftLocal,
+  writeOnboardingResumeStepLocal,
 } from '@/lib/preferences';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
@@ -136,13 +140,14 @@ const INCOME_CATEGORIAS_DEFAULT = [
 // ─── Step metadata ─────────────────────────────────────────────────────────────
 
 const STEP_LABELS = [
-  'Bienvenida',
+  'Bienvenido',
+  'Asesor',
   'Tu perfil',
   'Mis ingresos',
   'Gastos del mes',
   'Fuentes',
 ];
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 const TIPO_CAMBIO_DEFAULT = 3.75;
 
 /** Paso 0: mini-cards de contexto (orden: magnitud → creencia → oportunidad). */
@@ -161,8 +166,8 @@ const ONBOARDING_STAT_CARDS: OnboardingStatCard[] = [
   {
     id: 'leak',
     eyebrow: 'Realidad',
-    value: '68%',
-    description: 'Del sueldo desaparece\nsin explicación.',
+    value: '80%',
+    description: 'De tus ingresos se gastan\ncada mes sin control.',
     barColors: ['rgba(0,212,255,0.95)', 'rgba(0,212,255,0)'],
   },
   {
@@ -183,11 +188,28 @@ const ONBOARDING_STAT_CARDS: OnboardingStatCard[] = [
   },
 ];
 
+// ─── Welcome particles config ──────────────────────────────────────────────────
+/** Each particle: x/y as fraction of screen, size in dp, loop duration ms, rgba color. */
+const PARTICLE_CFG = [
+  { xFrac: 0.06, yFrac: 0.78, size: 3.5, dur: 7400, col: 'rgba(196,181,253,0.82)' },
+  { xFrac: 0.15, yFrac: 0.68, size: 4.0, dur: 8800, col: 'rgba(0,212,255,0.70)' },
+  { xFrac: 0.27, yFrac: 0.86, size: 3.0, dur: 6600, col: 'rgba(167,139,250,0.78)' },
+  { xFrac: 0.38, yFrac: 0.60, size: 4.5, dur: 9200, col: 'rgba(196,181,253,0.72)' },
+  { xFrac: 0.50, yFrac: 0.75, size: 3.0, dur: 7800, col: 'rgba(221,214,254,0.68)' },
+  { xFrac: 0.61, yFrac: 0.83, size: 4.0, dur: 8200, col: 'rgba(0,212,255,0.74)' },
+  { xFrac: 0.72, yFrac: 0.66, size: 3.0, dur: 6900, col: 'rgba(196,181,253,0.76)' },
+  { xFrac: 0.83, yFrac: 0.90, size: 4.5, dur: 9600, col: 'rgba(167,139,250,0.70)' },
+  { xFrac: 0.92, yFrac: 0.72, size: 3.0, dur: 7200, col: 'rgba(0,212,255,0.66)' },
+  { xFrac: 0.43, yFrac: 0.94, size: 3.5, dur: 8400, col: 'rgba(221,214,254,0.72)' },
+  { xFrac: 0.20, yFrac: 0.52, size: 4.0, dur: 7600, col: 'rgba(196,181,253,0.78)' },
+  { xFrac: 0.57, yFrac: 0.47, size: 3.0, dur: 9000, col: 'rgba(0,212,255,0.62)' },
+] as const;
+
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   /** Ancho útil bajo el padding horizontal de `S.slide` (24×2). */
   const gastosGridInnerW = windowWidth - 48;
   /** Espacio horizontal entre chips (columnas), ajustado al ancho de celda. */
@@ -217,6 +239,17 @@ export default function OnboardingScreen() {
   ).current;
   // ── Step & animation ────────────────────────────────────────────────────────
   const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    void (async () => {
+      const r = await readOnboardingResumeStepLocal();
+      if (r != null && r >= 0 && r < TOTAL_STEPS) {
+        await clearOnboardingResumeStepLocal();
+        setStep(r);
+      }
+    })();
+  }, []);
+
   const stepOpacity  = useRef(new Animated.Value(1)).current;
   const stepTransY   = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(1 / TOTAL_STEPS)).current;
@@ -226,8 +259,190 @@ export default function OnboardingScreen() {
   const scrollViewportH = useRef(0);
   const scrollContentH = useRef(0);
 
+  const welcomeOpacity   = useRef(new Animated.Value(0)).current;
+  const welcomeScale     = useRef(new Animated.Value(0.88)).current;
+  const welcomeTransY    = useRef(new Animated.Value(36)).current;
+  const welcomeGlowPulse = useRef(new Animated.Value(0)).current;
+  const welcomeOrbit1    = useRef(new Animated.Value(0)).current;
+  const welcomeOrbit2    = useRef(new Animated.Value(1)).current;
+  const welcomeFloat1    = useRef(new Animated.Value(0)).current;
+  const welcomeFloat2    = useRef(new Animated.Value(0)).current;
+  const welcomeLine1     = useRef(new Animated.Value(0)).current;
+  const welcomeLine2     = useRef(new Animated.Value(0)).current;
+  const welcomeCtaFade   = useRef(new Animated.Value(0)).current;
+  const particleAnims    = useRef(PARTICLE_CFG.map(() => new Animated.Value(0))).current;
+
+  // ── Step 1: WhatsApp chat demo ───────────────────────────────────────────────
+  const waHeadOpacity = useRef(new Animated.Value(0)).current;
+  const waHeadTransY  = useRef(new Animated.Value(20)).current;
+  const waBub1Opacity = useRef(new Animated.Value(0)).current;
+  const waBub1TransX  = useRef(new Animated.Value(-28)).current;
+  const waBub2Opacity = useRef(new Animated.Value(0)).current;
+  const waBub2TransX  = useRef(new Animated.Value(28)).current;
+  const waTyp1Opacity = useRef(new Animated.Value(0)).current;
+  const waBub3Opacity = useRef(new Animated.Value(0)).current;
+  const waBub3TransX  = useRef(new Animated.Value(-28)).current;
+  const waBub4Opacity = useRef(new Animated.Value(0)).current;
+  const waBub4TransX  = useRef(new Animated.Value(28)).current;
+  const waTyp2Opacity = useRef(new Animated.Value(0)).current;
+  const waBub5Opacity = useRef(new Animated.Value(0)).current;
+  const waBub5TransX  = useRef(new Animated.Value(-28)).current;
+  const waCtaOpacity  = useRef(new Animated.Value(0)).current;
+
+  // ── Step 2: nombre + moneda ──────────────────────────────────────────────────
+  const p2HeadOp  = useRef(new Animated.Value(0)).current;
+  const p2HeadTY  = useRef(new Animated.Value(18)).current;
+  const p2InputOp = useRef(new Animated.Value(0)).current;
+  const p2CurrOp  = useRef(new Animated.Value(0)).current;
+  const p2ProofOp = useRef(new Animated.Value(0)).current;
+  const p2CtaOp   = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
-    if (step !== 0) {
+    if (step !== 0) return;
+
+    welcomeOpacity.setValue(0);
+    welcomeScale.setValue(0.88);
+    welcomeTransY.setValue(36);
+    welcomeLine1.setValue(0);
+    welcomeLine2.setValue(0);
+    welcomeCtaFade.setValue(0);
+
+    // Entrance: logo → text line 1 → text line 2 → CTA
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(welcomeOpacity, { toValue: 1, duration: 680, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.spring(welcomeScale, { toValue: 1, friction: 6, tension: 90, useNativeDriver: true }),
+        Animated.timing(welcomeTransY, { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+      Animated.stagger(130, [
+        Animated.timing(welcomeLine1, { toValue: 1, duration: 440, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(welcomeLine2, { toValue: 1, duration: 440, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(welcomeCtaFade, { toValue: 1, duration: 360, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+    ]).start();
+
+    // Loop: glow pulse
+    const glowLoop = Animated.loop(Animated.sequence([
+      Animated.timing(welcomeGlowPulse, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(welcomeGlowPulse, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    // Loop: orbit rings
+    const orbitLoop1 = Animated.loop(Animated.timing(welcomeOrbit1, { toValue: 1, duration: 10000, easing: Easing.linear, useNativeDriver: true }));
+    const orbitLoop2 = Animated.loop(Animated.timing(welcomeOrbit2, { toValue: 0, duration: 16000, easing: Easing.linear, useNativeDriver: true }));
+    // Loop: background blob float
+    const floatLoop1 = Animated.loop(Animated.sequence([
+      Animated.timing(welcomeFloat1, { toValue: 1, duration: 5000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(welcomeFloat1, { toValue: 0, duration: 5000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    const floatLoop2 = Animated.loop(Animated.sequence([
+      Animated.timing(welcomeFloat2, { toValue: 0, duration: 6000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(welcomeFloat2, { toValue: 1, duration: 6000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+
+    glowLoop.start();
+    orbitLoop1.start();
+    orbitLoop2.start();
+    floatLoop1.start();
+    floatLoop2.start();
+
+    return () => {
+      glowLoop.stop();
+      orbitLoop1.stop();
+      orbitLoop2.stop();
+      floatLoop1.stop();
+      floatLoop2.stop();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // ── Particles: independent of step — run from mount to unmount ───────────────
+  useEffect(() => {
+    let active = true;
+    particleAnims.forEach((anim, i) => {
+      const dur = PARTICLE_CFG[i].dur;
+      const startPhase = i / PARTICLE_CFG.length;
+      const runLoop = () => {
+        if (!active) return;
+        anim.setValue(0);
+        Animated.timing(anim, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true })
+          .start(({ finished }) => { if (finished) runLoop(); });
+      };
+      const partialDur = dur * (1 - startPhase);
+      anim.setValue(startPhase);
+      Animated.timing(anim, { toValue: 1, duration: partialDur, easing: Easing.linear, useNativeDriver: true })
+        .start(({ finished }) => { if (finished) runLoop(); });
+    });
+    return () => {
+      active = false;
+      particleAnims.forEach((a) => a.stopAnimation());
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (step !== 1) return;
+    // Reset
+    waHeadOpacity.setValue(0); waHeadTransY.setValue(20);
+    [waBub1Opacity, waBub2Opacity, waTyp1Opacity, waBub3Opacity,
+     waBub4Opacity, waTyp2Opacity, waBub5Opacity, waCtaOpacity]
+      .forEach(v => v.setValue(0));
+    [waBub1TransX, waBub3TransX, waBub5TransX].forEach(v => v.setValue(-28));
+    [waBub2TransX, waBub4TransX].forEach(v => v.setValue(28));
+
+    const si = (op: Animated.Value, tx: Animated.Value) =>
+      Animated.parallel([
+        Animated.timing(op, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(tx, { toValue: 0, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]);
+    const fade = (op: Animated.Value, toValue: number, dur = 160) =>
+      Animated.timing(op, { toValue, duration: dur, useNativeDriver: true });
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(waHeadOpacity, { toValue: 1, duration: 480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(waHeadTransY,  { toValue: 0, duration: 480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+      Animated.delay(200),
+      si(waBub1Opacity, waBub1TransX),
+      Animated.delay(550),
+      si(waBub2Opacity, waBub2TransX),
+      Animated.delay(300),
+      fade(waTyp1Opacity, 1),
+      Animated.delay(850),
+      fade(waTyp1Opacity, 0),
+      si(waBub3Opacity, waBub3TransX),
+      Animated.delay(500),
+      si(waBub4Opacity, waBub4TransX),
+      Animated.delay(300),
+      fade(waTyp2Opacity, 1),
+      Animated.delay(850),
+      fade(waTyp2Opacity, 0),
+      si(waBub5Opacity, waBub5TransX),
+      Animated.delay(550),
+      fade(waCtaOpacity, 1, 380),
+    ]).start();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    p2HeadOp.setValue(0); p2HeadTY.setValue(18);
+    p2InputOp.setValue(0); p2CurrOp.setValue(0);
+    p2ProofOp.setValue(0); p2CtaOp.setValue(0);
+    const t = (op: Animated.Value, dur = 360) =>
+      Animated.timing(op, { toValue: 1, duration: dur, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+    Animated.sequence([
+      Animated.parallel([
+        t(p2HeadOp, 480),
+        Animated.timing(p2HeadTY, { toValue: 0, duration: 480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+      Animated.stagger(110, [t(p2InputOp), t(p2CurrOp), t(p2ProofOp), t(p2CtaOp, 300)]),
+    ]).start();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== 3) {
       statCardEnterAnim.forEach((a) => {
         a.opacity.setValue(0);
         a.translateY.setValue(18);
@@ -266,7 +481,7 @@ export default function OnboardingScreen() {
   const [ingresoAprox, setIngresoAprox]           = useState('');
 
   // ── Theme selection (onboarding) ────────────────────────────────────────────
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const T = isDarkMode ? darkTheme : lightTheme;
 
   // ── Profile ─────────────────────────────────────────────────────────────────
@@ -331,7 +546,7 @@ export default function OnboardingScreen() {
 
   // ── Gastos step: auto-reveal chips on enter ──────────────────────────────────
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 4) return;
     // Si vuelve con categorías ya elegidas → chips visibles de inmediato
     if (categoriasList.length > 0) {
       catChipAnims.forEach((a) => { a.opacity.setValue(1); a.scale.setValue(1); a.glow.setValue(0); });
@@ -366,7 +581,7 @@ export default function OnboardingScreen() {
   const goToStep = (n: number) => {
     Animated.timing(stepOpacity, { toValue: 0, duration: 160, useNativeDriver: true }).start(() => {
       setStep(n);
-      if (n === 3) setGastosSelectionHint('');
+      if (n === 4) setGastosSelectionHint('');
       stepTransY.setValue(18);
       scrollRef.current?.scrollTo({ y: 0, animated: false });
       Animated.parallel([
@@ -423,7 +638,7 @@ export default function OnboardingScreen() {
       return;
     }
     setGastosSelectionHint('');
-    goToStep(4);
+    goToStep(5);
   };
 
   // ── Category picker helpers ───────────────────────────────────────────────────
@@ -490,7 +705,16 @@ export default function OnboardingScreen() {
       return;
     }
     setProfileNameError('');
-    goToStep(2);
+    goToStep(5);
+  };
+
+  const handleStep2Continue = () => {
+    if (!nombreUsuario.trim()) {
+      setProfileNameError('Ingresa tu nombre para continuar.');
+      return;
+    }
+    setProfileNameError('');
+    goToStep(3);
   };
 
   const toggleIncomeSource = (id: string) => {
@@ -536,6 +760,7 @@ export default function OnboardingScreen() {
       void writeDarkModeCache(themeMode);
 
       setFinishing(false);
+      await writeOnboardingResumeStepLocal(ONBOARDING_LAST_STEP_INDEX);
       router.replace('/(auth)/register' as any);
     } catch (e) {
       console.error('Error in handleFinish:', e);
@@ -547,28 +772,117 @@ export default function OnboardingScreen() {
   const progressFillWidth = progressAnim.interpolate({
     inputRange: [0, 1], outputRange: [0, progressTrackW],
   });
+  // ── Derived: welcome interpolations ──────────────────────────────────────────
+  const wGlowOpacity    = welcomeGlowPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] });
+  const wGlowScale      = welcomeGlowPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] });
+  const wOrbit1Rotate   = welcomeOrbit1.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const wOrbit2Rotate   = welcomeOrbit2.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-360deg'] });
+  const wBlob1TransY    = welcomeFloat1.interpolate({ inputRange: [0, 1], outputRange: [0, -28] });
+  const wBlob2TransY    = welcomeFloat2.interpolate({ inputRange: [0, 1], outputRange: [0, 22] });
+  const wLine1TransY    = welcomeLine1.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
+  const wLine2TransY    = welcomeLine2.interpolate({ inputRange: [0, 1], outputRange: [14, 0] });
+  const wCtaScale       = welcomeCtaFade.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
+
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <View style={[S.container, { backgroundColor: T.bg }]}>
 
-      {/* ── Progress header ───────────────────────────────────────────── */}
-      <View style={S.header}>
-        <View style={S.headerRow}>
-          <Text style={[S.stepLabel, { color: T.textSecondary }]}>{STEP_LABELS[step]}</Text>
-          <Text style={[S.stepCount, { color: T.textMuted }]}>
-            <Text style={{ color: T.primary, fontWeight: '700' }}>{step + 1}</Text>
-            {' / '}{TOTAL_STEPS}
-          </Text>
-        </View>
-        <View
-          style={[S.progressTrack, { backgroundColor: T.glassLight }]}
-          onLayout={(e) => setProgressTrackW(e.nativeEvent.layout.width)}>
-          <Animated.View style={[S.progressFill, { backgroundColor: T.primary, width: progressFillWidth }]} />
-        </View>
+      {/* ── Premium dark background (all steps) ────────────────────────── */}
+      <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden', zIndex: 0 }]} pointerEvents="none">
+          <LinearGradient
+            colors={['#080018', '#0F0028', '#090016']}
+            locations={[0, 0.55, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          {/* Blob: purple top-right */}
+          <Animated.View
+            style={[
+              S.wBgBlob1,
+              { transform: [{ translateY: wBlob1TransY }] },
+              Platform.OS === 'web' && ({ filter: 'blur(88px)' } as object),
+            ]}
+          />
+          {/* Blob: cyan bottom-left */}
+          <Animated.View
+            style={[
+              S.wBgBlob2,
+              { transform: [{ translateY: wBlob2TransY }] },
+              Platform.OS === 'web' && ({ filter: 'blur(80px)' } as object),
+            ]}
+          />
+          {/* Blob: violet center (subtle) */}
+          <View
+            style={[
+              S.wBgBlobCenter,
+              Platform.OS === 'web' && ({ filter: 'blur(120px)' } as object),
+            ]}
+          />
+          {/* Dot grid (web only) */}
+          {Platform.OS === 'web' && (
+            <View
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  opacity: 0.18,
+                  backgroundImage: 'radial-gradient(circle, rgba(196,181,253,0.9) 1px, transparent 1px)',
+                  backgroundSize: '28px 28px',
+                } as any,
+              ]}
+            />
+          )}
+          {/* Floating particles */}
+          {particleAnims.map((anim, i) => {
+            const cfg = PARTICLE_CFG[i];
+            const travelDist = windowHeight * 0.44;
+            const pTransY = anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, -travelDist],
+            });
+            const pOpacity = anim.interpolate({
+              inputRange: [0, 0.08, 0.78, 1],
+              outputRange: [0, 1, 1, 0],
+            });
+            return (
+              <Animated.View
+                key={i}
+                style={{
+                  position: 'absolute',
+                  left: cfg.xFrac * windowWidth,
+                  top: cfg.yFrac * windowHeight,
+                  width: cfg.size,
+                  height: cfg.size,
+                  borderRadius: cfg.size / 2,
+                  backgroundColor: cfg.col,
+                  opacity: pOpacity,
+                  transform: [{ translateY: pTransY }],
+                }}
+              />
+            );
+          })}
       </View>
 
+      {/* ── Progress header (hidden on steps 0-2, shown on 3-5) ──────── */}
+      {step > 2 && (
+        <View style={S.header}>
+          <View style={S.headerRow}>
+            <Text style={[S.stepLabel, { color: T.textSecondary }]}>{STEP_LABELS[step]}</Text>
+            <Text style={[S.stepCount, { color: T.textMuted }]}>
+              <Text style={{ color: T.primary, fontWeight: '700' }}>{step + 1}</Text>
+              {' / '}{TOTAL_STEPS}
+            </Text>
+          </View>
+          <View
+            style={[S.progressTrack, { backgroundColor: T.glassLight }]}
+            onLayout={(e) => setProgressTrackW(e.nativeEvent.layout.width)}>
+            <Animated.View style={[S.progressFill, { backgroundColor: T.primary, width: progressFillWidth }]} />
+          </View>
+        </View>
+      )}
+
       {/* ── Animated step container ───────────────────────────────────── */}
-      <Animated.View style={{ flex: 1, opacity: stepOpacity, transform: [{ translateY: stepTransY }] }}>
+      <Animated.View style={{ flex: 1, opacity: stepOpacity, transform: [{ translateY: stepTransY }], zIndex: 1 }}>
         <ScrollView
           ref={scrollRef}
           onLayout={(e) => {
@@ -577,14 +891,288 @@ export default function OnboardingScreen() {
           onContentSizeChange={(_, h) => {
             scrollContentH.current = h;
           }}
-          contentContainerStyle={[S.slide, step === 3 && S.slideGastosTight]}
+          contentContainerStyle={[
+            step > 2 && S.slide,
+            step === 4 && S.slideGastosTight,
+            step <= 2 && S.wSlide,
+          ]}
           showsVerticalScrollIndicator={false}
-          scrollEnabled={step !== 3}
+          scrollEnabled={step !== 4}
           keyboardShouldPersistTaps="handled">
 
-          {/* ───────────── PASO 0 · Bienvenida ───────────────────────── */}
+          {/* ───────────── PASO 0 · Bienvenida premium ─────────────────── */}
           {step === 0 && (
+            <View style={S.wRoot}>
+
+              {/* ── Logo + orbit rings ─────────────────────────────────── */}
+              <Animated.View style={[S.wLogoSection, { opacity: welcomeOpacity, transform: [{ scale: welcomeScale }, { translateY: welcomeTransY }] }]}>
+                {/* Glow pulse */}
+                <Animated.View style={[S.wGlowPulse, { opacity: wGlowOpacity, transform: [{ scale: wGlowScale }] }]} />
+                {/* Outer orbit ring */}
+                <Animated.View style={[S.wOrbitRing2, { transform: [{ rotate: wOrbit2Rotate }] }]} />
+                {/* Inner orbit ring */}
+                <Animated.View style={[S.wOrbitRing1, { transform: [{ rotate: wOrbit1Rotate }] }]} />
+                {/* Logo */}
+                <LinearGradient
+                  colors={['#DDD6FE', '#7C3AED', '#4C1D95']}
+                  locations={[0, 0.48, 1]}
+                  start={{ x: 0.2, y: 0 }}
+                  end={{ x: 0.8, y: 1 }}
+                  style={S.wLogoGrad}>
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.22)', 'rgba(255,255,255,0)']}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]}
+                  />
+                  <Text style={S.wLogoEmoji}>💎</Text>
+                </LinearGradient>
+              </Animated.View>
+
+              {/* ── Brand text ─────────────────────────────────────────── */}
+              <Animated.View style={[S.wTextBlock, { opacity: welcomeLine1, transform: [{ translateY: wLine1TransY }] }]}>
+                <Text style={S.wKicker}>BIENVENIDO A</Text>
+                <Text style={S.wBrand}>AhorraYA</Text>
+              </Animated.View>
+
+              {/* ── Tagline + pills ────────────────────────────────────── */}
+              <Animated.View style={[S.wSubBlock, { opacity: welcomeLine2, transform: [{ translateY: wLine2TransY }] }]}>
+                <Text style={S.wTagline}>Finanzas inteligentes.{'\n'}Configuración en menos de 3 minutos.</Text>
+                <View style={S.wPillRow}>
+                  {([['🔒', 'Privado'], ['📊', 'Inteligente'], ['⚡', 'Rápido']] as const).map(([icon, label]) => (
+                    <View key={label} style={S.wPill}>
+                      <Text style={{ fontSize: 13 }}>{icon}</Text>
+                      <Text style={S.wPillText}>{label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Animated.View>
+
+              {/* ── CTA ────────────────────────────────────────────────── */}
+              <Animated.View style={[S.wCtaWrap, { opacity: welcomeCtaFade, transform: [{ scale: wCtaScale }] }]}>
+                <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.84} style={S.wCtaTouchable}>
+                  <LinearGradient
+                    colors={['#7C3AED', '#5B21B6', '#00D4FF']}
+                    locations={[0, 0.55, 1]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={S.wCtaGrad}>
+                    <Text style={S.wCtaText}>Empezar ahora  →</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <Text style={S.wCtaMeta}>Gratis · Sin tarjeta de crédito</Text>
+              </Animated.View>
+
+            </View>
+          )}
+
+          {/* ───────────── PASO 1 · Asesor WhatsApp ────────────────────── */}
+          {step === 1 && (
+            <View style={S.waRoot}>
+
+              {/* Back */}
+              <Animated.View style={{ opacity: waHeadOpacity, alignSelf: 'flex-start', marginBottom: 10 }}>
+                <TouchableOpacity onPress={() => goToStep(0)} activeOpacity={0.75}>
+                  <Text style={{ fontSize: 13, color: 'rgba(196,181,253,0.65)' }}>← Volver</Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Headline (subtítulo va debajo del CTA) */}
+              <Animated.View style={[S.waHeadlineBlock, { opacity: waHeadOpacity, transform: [{ translateY: waHeadTransY }] }]}>
+                <Text style={S.waHeadline}>Aprovecha nuestro Asesor financiero vía WhatsApp</Text>
+              </Animated.View>
+
+              {/* Header: avatar + name + status */}
+              <Animated.View style={[S.waHeader, { opacity: waHeadOpacity }]}>
+                <LinearGradient colors={['#25D366', '#128C7E']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={S.waAvatar}>
+                  <Text style={{ fontSize: 16 }}>🤖</Text>
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.waHeaderName}>Asesor AhorraYA</Text>
+                  <View style={S.waOnlineRow}>
+                    <View style={S.waOnlineDot} />
+                    <Text style={S.waOnlineText}>en línea</Text>
+                  </View>
+                </View>
+                <View style={S.waBadge}><Text style={S.waBadgeText}>WhatsApp</Text></View>
+              </Animated.View>
+
+              {/* Chat window */}
+              <View style={S.waChatWindow}>
+                <Animated.View style={[S.waBotRow, { opacity: waBub1Opacity, transform: [{ translateX: waBub1TransX }] }]}>
+                  <View style={S.waBotBubble}>
+                    <Text style={S.waBotText}>Hola! 👋 Envíame un gasto y lo registro.</Text>
+                    <Text style={S.waBubbleTime}>10:31</Text>
+                  </View>
+                </Animated.View>
+                <Animated.View style={[S.waUserRow, { opacity: waBub2Opacity, transform: [{ translateX: waBub2TransX }] }]}>
+                  <View style={S.waUserBubble}>
+                    <Text style={S.waUserText}>Gaste 15 soles en comida</Text>
+                    <Text style={S.waUserTime}>10:32 ✓✓</Text>
+                  </View>
+                </Animated.View>
+                <Animated.View style={[S.waBotRow, { opacity: waTyp1Opacity }]}>
+                  <View style={S.waTypingBubble}><Text style={S.waTypingDots}>● ● ●</Text></View>
+                </Animated.View>
+                <Animated.View style={[S.waBotRow, { opacity: waBub3Opacity, transform: [{ translateX: waBub3TransX }] }]}>
+                  <View style={S.waBotBubble}>
+                    <Text style={S.waBotText}>Listo ✅ Registré: S/15 en comida.</Text>
+                    <Text style={S.waBubbleTime}>10:32</Text>
+                  </View>
+                </Animated.View>
+                <Animated.View style={[S.waUserRow, { opacity: waBub4Opacity, transform: [{ translateX: waBub4TransX }] }]}>
+                  <View style={S.waUserBubble}>
+                    <Text style={S.waUserText}>Taxi 12</Text>
+                    <Text style={S.waUserTime}>10:33 ✓✓</Text>
+                  </View>
+                </Animated.View>
+                <Animated.View style={[S.waBotRow, { opacity: waTyp2Opacity }]}>
+                  <View style={S.waTypingBubble}><Text style={S.waTypingDots}>● ● ●</Text></View>
+                </Animated.View>
+                <Animated.View style={[S.waBotRow, { opacity: waBub5Opacity, transform: [{ translateX: waBub5TransX }] }]}>
+                  <View style={S.waBotBubble}>
+                    <Text style={S.waBotText}>Listo ✅ Registré: S/12 en taxi.</Text>
+                    <Text style={S.waBubbleTime}>10:33</Text>
+                  </View>
+                </Animated.View>
+              </View>
+
+              <Animated.View style={[S.waSubHeadlineBelowWrap, { opacity: waCtaOpacity }]}>
+                <Text style={S.waSubHeadline}>
+                  Registros rápidos como nunca y entiende tus finanzas como nunca antes lo habías hecho.
+                </Text>
+              </Animated.View>
+
+              {/* CTA */}
+              <Animated.View style={[S.wCtaWrap, { opacity: waCtaOpacity }]}>
+                <TouchableOpacity onPress={() => goToStep(2)} activeOpacity={0.84} style={S.wCtaTouchable}>
+                  <LinearGradient colors={['#7C3AED', '#5B21B6', '#00D4FF']} locations={[0, 0.55, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={S.wCtaGrad}>
+                    <Text style={S.wCtaText}>Entendido  →</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <Text style={S.wCtaMeta}>Vincula tu WhatsApp al finalizar</Text>
+              </Animated.View>
+
+            </View>
+          )}
+
+          {/* ───────────── PASO 2 · Nombre + moneda ───────────────────── */}
+          {step === 2 && (
+            <View style={S.waRoot}>
+
+              {/* Back */}
+              <Animated.View style={{ opacity: p2HeadOp, alignSelf: 'flex-start', marginBottom: 8 }}>
+                <TouchableOpacity onPress={() => goToStep(1)} activeOpacity={0.75}>
+                  <Text style={{ fontSize: 15, color: 'rgba(221,214,254,0.82)', fontFamily: 'Manrope_500Medium' }}>← Volver</Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Headline */}
+              <Animated.View style={[S.p2HeadlineBlock, { opacity: p2HeadOp, transform: [{ translateY: p2HeadTY }] }]}>
+                <Text style={S.p2ScreenTitle}>Cuéntanos sobre ti</Text>
+                <Text style={S.p2ScreenSub}>
+                  Solo necesitamos tu nombre y moneda preferida para personalizar tu experiencia.
+                </Text>
+              </Animated.View>
+
+              {/* Nombre input */}
+              <Animated.View style={{ opacity: p2InputOp, width: '100%', marginBottom: 12 }}>
+                <Text style={S.p2Label}>Tu nombre o apodo</Text>
+                <View style={S.p2InputWrap}>
+                  <Text style={S.p2InputIcon}>🧑</Text>
+                  <TextInput
+                    style={[S.p2Input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]}
+                    placeholder="¿Cómo te llamamos?"
+                    placeholderTextColor="rgba(196,181,253,0.48)"
+                    value={nombreUsuario}
+                    onChangeText={(val) => { setNombreUsuario(val); if (profileNameError) setProfileNameError(''); }}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                  />
+                </View>
+                {profileNameError ? (
+                  <Text style={{ fontSize: 12, color: '#f87171', marginTop: 5, marginLeft: 4 }}>{profileNameError}</Text>
+                ) : null}
+              </Animated.View>
+
+              {/* Moneda selector */}
+              <Animated.View style={{ opacity: p2CurrOp, width: '100%', marginBottom: 14 }}>
+                <Text style={S.p2Label}>Moneda principal</Text>
+                <View style={S.p2CurrRow}>
+                  {([
+                    { code: 'PEN' as MonedaCode, label: 'Soles', flag: '🇵🇪', sym: 'S/.' },
+                    { code: 'USD' as MonedaCode, label: 'Dólares', flag: '🇺🇸', sym: '$' },
+                  ] as const).map((c) => {
+                    const active = moneda === c.code;
+                    return (
+                      <TouchableOpacity
+                        key={c.code}
+                        style={[S.p2CurrCard, active && S.p2CurrCardActive]}
+                        onPress={() => setMoneda(c.code)}
+                        activeOpacity={0.8}>
+                        <Text style={S.p2CurrFlagEmoji}>{c.flag}</Text>
+                        <Text style={[S.p2CurrLabel, { color: active ? '#FFFFFF' : 'rgba(221,214,254,0.9)' }]}>{c.label}</Text>
+                        <Text
+                          style={[
+                            S.p2CurrSym,
+                            active ? S.p2CurrSymActive : S.p2CurrSymInactive,
+                          ]}>
+                          {c.sym}
+                        </Text>
+                        {active && <View style={S.p2CurrCheck}><Text style={{ fontSize: 9, color: '#fff' }}>✓</Text></View>}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </Animated.View>
+
+              {/* Stat cards compactas */}
+              <Animated.View style={{ opacity: p2ProofOp, width: '100%', marginBottom: 10 }}>
+                <Text style={[S.p2Label, S.p2StatsSectionLabel]}>Por qué cuesta ahorrar</Text>
+                <View style={S.p2StatsRow}>
+                  {([
+                    { value: '80%', label: 'De tus ingresos se gastan\ncada mes sin control', color: '#00D4FF', eyebrow: 'Realidad' },
+                    { value: '8 de 10', label: 'Creen que ganando más ahorrarán más',  color: '#C4B5FD', eyebrow: 'Creencia' },
+                    { value: 'Solo 8%', label: 'Ahorra de forma profesional. Sé del grupo.', color: '#A78BFA', eyebrow: 'Oportunidad' },
+                  ] as const).map((s) => (
+                    <View key={s.eyebrow} style={S.p2StatCard}>
+                      <Text style={[S.p2StatEyebrow, { color: s.color }]}>{s.eyebrow}</Text>
+                      <Text style={[S.p2StatValue, { color: s.color }]}>{s.value}</Text>
+                      <Text style={S.p2StatLabel}>{s.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Animated.View>
+
+              {/* Social proof */}
+              <Animated.View style={{ opacity: p2ProofOp, width: '100%', marginBottom: 14 }}>
+                <View style={S.p2SocialProof}>
+                  <Text style={S.p2SocialFlagEmoji}>🇵🇪</Text>
+                  <Text style={S.p2SocialText}>
+                    Miles de peruanos ya organizan su dinero con{' '}
+                    <Text style={{ color: '#F5F3FF', fontWeight: '800', fontFamily: 'PlusJakartaSans_700Bold' }}>AhorraYA</Text>
+                  </Text>
+                </View>
+              </Animated.View>
+
+              {/* CTA */}
+              <Animated.View style={[S.wCtaWrap, { opacity: p2CtaOp }]}>
+                <TouchableOpacity onPress={handleStep2Continue} activeOpacity={0.84} style={S.wCtaTouchable}>
+                  <LinearGradient colors={['#7C3AED', '#5B21B6', '#00D4FF']} locations={[0, 0.55, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={S.wCtaGrad}>
+                    <Text style={S.wCtaText}>Continuar  →</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+
+            </View>
+          )}
+
+          {/* ───────────── (steps 3-context & 4-profile removed) ──────── */}
+          {false && (
             <View style={S.stepContent}>
+              <TouchableOpacity onPress={() => goToStep(2)} style={S.welcomeBackLink} activeOpacity={0.75}>
+                <Text style={[S.backText, { color: T.textMuted }]}>← Volver</Text>
+              </TouchableOpacity>
 
               {/* Hero icon + headline */}
               <View style={S.heroSection}>
@@ -779,7 +1367,7 @@ export default function OnboardingScreen() {
                 </Text>
               </View>
 
-              <TouchableOpacity style={[S.ctaBtn, { backgroundColor: T.primary }]} onPress={() => goToStep(1)} activeOpacity={0.84}>
+              <TouchableOpacity style={[S.ctaBtn, { backgroundColor: T.primary }]} onPress={() => goToStep(4)} activeOpacity={0.84}>
                 <Text style={S.ctaBtnText}>Empezar ahora →</Text>
               </TouchableOpacity>
               <Text style={{ fontSize: 12, color: T.textMuted, textAlign: 'center', marginTop: -8 }}>
@@ -788,17 +1376,36 @@ export default function OnboardingScreen() {
             </View>
           )}
 
-          {/* ───────────── PASO 3 · Rango salarial (3/5) ───────────────── */}
-          {step === 2 && (
+          {/* ───────────── PASO 3 · Rango salarial ─────────────────────── */}
+          {step === 3 && (
             <View style={[S.stepContent, S.stepIncomeLayout]}>
-              <View style={{ width: '100%', gap: 4 }}>
-                <Text style={[S.sectionTitleIncome, { color: T.textPrimary }]}>¿Cuál es tu rango de ingresos?</Text>
-                <Text style={[S.sectionSubIncome, { color: T.textSecondary }]}>
+              <View style={{ width: '100%', gap: 5 }}>
+                <Text
+                  style={[
+                    S.sectionTitleIncome,
+                    {
+                      color: T.textPrimary,
+                      ...(isDarkMode
+                        ? {
+                            textShadowColor: 'rgba(0,0,0,0.45)',
+                            textShadowOffset: { width: 0, height: 1 },
+                            textShadowRadius: 8,
+                          }
+                        : {}),
+                    },
+                  ]}>
+                  ¿Cuál es tu rango de ingresos?
+                </Text>
+                <Text
+                  style={[
+                    S.sectionSubIncome,
+                    { color: isDarkMode ? 'rgba(226,232,240,0.95)' : T.textSecondary },
+                  ]}>
                   Nos ayuda a contextualizar la app; tus montos reales los verás al registrar gastos.
                 </Text>
               </View>
 
-              <View style={{ width: '100%', gap: 6 }}>
+              <View style={{ width: '100%', gap: 5 }}>
                 {SALARY_RANGES.map((r) => {
                   const active = salarioRango === r.id;
                   return (
@@ -817,8 +1424,30 @@ export default function OnboardingScreen() {
                       activeOpacity={0.8}>
                       <Text style={S.salaryIconIncome}>{r.icon}</Text>
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[S.salaryLabel, S.salaryLabelIncome, { color: active ? T.primary : T.textPrimary }]}>{r.label}</Text>
-                        <Text style={[S.salarySubIncome, { color: T.textMuted }]} numberOfLines={1}>{r.sub}</Text>
+                        <Text
+                          style={[
+                            S.salaryLabel,
+                            S.salaryLabelIncome,
+                            {
+                              color: active
+                                ? isDarkMode
+                                  ? T.secondary
+                                  : T.primary
+                                : isDarkMode
+                                  ? '#F1F5F9'
+                                  : T.textPrimary,
+                            },
+                          ]}>
+                          {r.label}
+                        </Text>
+                        <Text
+                          style={[
+                            S.salarySubIncome,
+                            { color: isDarkMode ? 'rgba(203,213,225,0.88)' : T.textMuted },
+                          ]}
+                          numberOfLines={1}>
+                          {r.sub}
+                        </Text>
                       </View>
                       <View style={[
                         S.radioCircle,
@@ -833,18 +1462,31 @@ export default function OnboardingScreen() {
               </View>
 
               <View style={[S.privacyNote, S.privacyNoteIncome, { backgroundColor: T.surface, borderColor: T.glassBorder }]}>
-                <Text style={[S.privacyTextIncome, { color: T.textMuted }]}>
+                <Text
+                  style={[
+                    S.privacyTextIncome,
+                    { color: isDarkMode ? 'rgba(203,213,225,0.9)' : T.textMuted },
+                  ]}>
                   🔒 Solo para personalizar la app · no se comparte.
                 </Text>
               </View>
 
               <View style={S.navRow}>
-                <TouchableOpacity onPress={() => goToStep(1)} style={S.backBtn}>
-                  <Text style={[S.backText, { color: T.textMuted }]}>← Atrás</Text>
+                <TouchableOpacity onPress={() => goToStep(2)} style={S.backBtn}>
+                  <Text
+                    style={[
+                      S.backText,
+                      {
+                        color: isDarkMode ? 'rgba(203,213,225,0.85)' : T.textMuted,
+                        fontSize: 15,
+                      },
+                    ]}>
+                    ← Atrás
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[S.ctaBtn, { backgroundColor: salarioRango ? T.primary : T.surface, flex: 1 }]}
-                  onPress={() => goToStep(3)}
+                  onPress={() => goToStep(4)}
                   disabled={!salarioRango}
                   activeOpacity={0.84}>
                   <Text style={[S.ctaBtnText, { color: salarioRango ? '#fff' : T.textMuted }]}>
@@ -855,8 +1497,7 @@ export default function OnboardingScreen() {
             </View>
           )}
 
-          {/* ───────────── PASO 2 · Tu perfil + tema ──────────────────── */}
-          {step === 1 && (
+          {false && false && (
             <View style={[S.stepContent, S.stepProfileLayout]}>
               <View style={S.profileColumn}>
 
@@ -1044,7 +1685,7 @@ export default function OnboardingScreen() {
                 {/* Navegación */}
                 <View style={S.profileNavRow}>
                   <TouchableOpacity
-                    onPress={() => goToStep(0)}
+                    onPress={() => goToStep(3)}
                     style={[S.profileBackSq, { borderColor: T.glassBorder, backgroundColor: T.surface }]}
                     accessibilityLabel="Atrás"
                     activeOpacity={0.75}>
@@ -1059,7 +1700,7 @@ export default function OnboardingScreen() {
           )}
 
           {/* ───────────── PASO 4 · Gastos del mes (sin scroll: grid compacta) ─ */}
-          {step === 3 && (
+          {step === 4 && (
             <View style={[S.stepContent, S.stepGastosLayout]}>
               <View style={S.gastosScrollFreeTop}>
                 {/* Encabezado — una sola frase, menos altura */}
@@ -1255,7 +1896,7 @@ export default function OnboardingScreen() {
 
                 <View style={S.gastosNavRowFoot}>
                   <TouchableOpacity
-                    onPress={() => goToStep(2)}
+                    onPress={() => goToStep(3)}
                     style={[S.gastosBackFoot, { borderColor: T.glassBorder, backgroundColor: T.surface }]}
                     activeOpacity={0.75}>
                     <Text style={{ fontSize: 18, color: T.textMuted }}>←</Text>
@@ -1275,7 +1916,7 @@ export default function OnboardingScreen() {
           )}
 
           {/* ───────────── PASO 5 · Fuentes de ingreso ─────────────────── */}
-          {step === 4 && (
+          {step === 5 && (
             <View style={S.stepContent}>
               <View style={{ width: '100%', gap: 6 }}>
                 <Text style={[S.sectionTitle, { color: T.textPrimary }]}>Fuentes de ingreso</Text>
@@ -1345,11 +1986,11 @@ export default function OnboardingScreen() {
                     <Text style={[S.finishBtnText, { color: T.textMuted }]}>Guardando tu perfil...</Text>
                   </View>
                 ) : (
-                  <Text style={S.finishBtnText}>Ir a registrar gastos →</Text>
+                  <Text style={S.finishBtnText}>Continuar →</Text>
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ paddingVertical: 8 }} onPress={() => goToStep(3)}>
+              <TouchableOpacity style={{ paddingVertical: 8 }} onPress={() => goToStep(4)}>
                 <Text style={[S.backText, { color: T.textMuted, textAlign: 'center' }]}>← Volver</Text>
               </TouchableOpacity>
             </View>
@@ -1450,13 +2091,483 @@ const S = StyleSheet.create({
   progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
   progressFill:  { height: 3, borderRadius: 2 },
   slide:         { paddingHorizontal: 24, paddingBottom: 44 },
-  /** Menos relleno inferior en gastos (grid ya ocupa sitio). */
   slideGastosTight: { paddingBottom: 12, flexGrow: 1 },
+
+  // ── Welcome step 0 premium styles ──────────────────────────────────────────
+  /** Full-viewport slide for step 0 (no horizontal padding — content manages own). */
+  wSlide: { flexGrow: 1 },
+  wRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingBottom: 40,
+    gap: 0,
+  },
+  // Background blobs
+  wBgBlob1: {
+    position: 'absolute',
+    width: 340,
+    height: 340,
+    borderRadius: 170,
+    backgroundColor: 'rgba(124,58,237,0.42)',
+    top: -80,
+    right: -90,
+  },
+  wBgBlob2: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(0,212,255,0.28)',
+    bottom: 60,
+    left: -90,
+  },
+  wBgBlobCenter: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(109,40,217,0.22)',
+    top: '35%',
+    left: '20%',
+  },
+  // Logo + rings
+  wLogoSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 180,
+    height: 180,
+    marginBottom: 32,
+  },
+  wGlowPulse: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(124,58,237,0.55)',
+  },
+  wOrbitRing1: {
+    position: 'absolute',
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.55)',
+    borderStyle: 'dashed',
+  },
+  wOrbitRing2: {
+    position: 'absolute',
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    borderWidth: 1,
+    borderColor: 'rgba(0,212,255,0.35)',
+  },
+  wLogoGrad: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden' as const,
+  },
+  wLogoEmoji: {
+    fontSize: 34,
+    lineHeight: 38,
+    zIndex: 1,
+    textShadowColor: 'rgba(203,166,255,0.7)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 14,
+  },
+  // Text
+  wTextBlock: { alignItems: 'center', marginBottom: 14 },
+  wKicker: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 3,
+    color: 'rgba(196,181,253,0.75)',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    textTransform: 'uppercase' as const,
+    marginBottom: 4,
+  },
+  wBrand: {
+    fontSize: 42,
+    fontWeight: '800',
+    letterSpacing: -1.2,
+    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    textShadowColor: 'rgba(124,58,237,0.6)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 18,
+  },
+  wSubBlock: { alignItems: 'center', marginBottom: 36 },
+  wTagline: {
+    fontSize: 14,
+    textAlign: 'center' as const,
+    lineHeight: 22,
+    color: 'rgba(196,181,253,0.7)',
+    fontFamily: 'Manrope_400Regular',
+    marginBottom: 20,
+  },
+  wPillRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
+  wPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: 'rgba(124,58,237,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.3)',
+  },
+  wPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(221,214,254,0.9)',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
+  },
+  // CTA
+  wCtaWrap: { alignItems: 'center', width: '100%', maxWidth: 340 },
+  wCtaTouchable: { width: '100%', borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12 },
+  wCtaGrad: {
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  wCtaText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  wCtaMeta: {
+    fontSize: 11,
+    color: 'rgba(196,181,253,0.45)',
+    fontFamily: 'Manrope_400Regular',
+  },
+
+  // ── WhatsApp demo step ─────────────────────────────────────────────────────
+  waRoot: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 380,
+    alignSelf: 'center',
+    paddingHorizontal: 18,
+    paddingTop: 44,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  waHeadlineBlock: { width: '100%', alignItems: 'center', marginBottom: 12 },
+  waHeadline: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    textAlign: 'center' as const,
+    lineHeight: 24,
+    letterSpacing: -0.3,
+    marginBottom: 6,
+    textShadowColor: 'rgba(124,58,237,0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  },
+  waSubHeadline: {
+    fontSize: 14,
+    color: 'rgba(226,232,240,0.94)',
+    fontFamily: 'Manrope_500Medium',
+    textAlign: 'center' as const,
+    lineHeight: 21,
+    paddingHorizontal: 6,
+    textShadowColor: 'rgba(255,255,255,0.4)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  },
+  /** Debajo del chat demo, encima del CTA (paso WhatsApp). */
+  waSubHeadlineBelowWrap: {
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center' as const,
+    marginTop: 2,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  /** Paso nombre+moneda (3/6): mismo bloque que WhatsApp pero tipografía más grande en oscuro. */
+  p2HeadlineBlock: { width: '100%', alignItems: 'center', marginBottom: 10 },
+  p2ScreenTitle: {
+    fontSize: 21,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    textAlign: 'center' as const,
+    lineHeight: 28,
+    letterSpacing: -0.35,
+    marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 14,
+  },
+  p2ScreenSub: {
+    fontSize: 14,
+    color: 'rgba(226,232,240,0.9)',
+    fontFamily: 'Manrope_500Medium',
+    textAlign: 'center' as const,
+    lineHeight: 21,
+    paddingHorizontal: 4,
+  },
+  waHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 10,
+  },
+  waAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  waHeaderName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans_700Bold',
+  },
+  waOnlineRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+  waOnlineDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#25D366' },
+  waOnlineText: { fontSize: 10, color: 'rgba(196,181,253,0.65)', fontFamily: 'Manrope_400Regular' },
+  waBadge: {
+    backgroundColor: 'rgba(37,211,102,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(37,211,102,0.35)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  waBadgeText: { fontSize: 9, fontWeight: '700', color: '#25D366', fontFamily: 'PlusJakartaSans_700Bold' },
+  waChatWindow: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.15)',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 5,
+    marginBottom: 8,
+    ...Platform.select({
+      web: { boxShadow: '0 6px 24px rgba(0,0,0,0.35)' } as object,
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12 },
+      android: { elevation: 6 },
+      default: {},
+    }),
+  },
+  waBotRow: { flexDirection: 'row', justifyContent: 'flex-start', width: '100%' },
+  waUserRow: { flexDirection: 'row', justifyContent: 'flex-end', width: '100%' },
+  waBotBubble: {
+    backgroundColor: 'rgba(124,58,237,0.28)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.2)',
+    borderRadius: 12,
+    borderBottomLeftRadius: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    maxWidth: '80%',
+    gap: 2,
+  },
+  waUserBubble: {
+    borderRadius: 12,
+    borderBottomRightRadius: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    maxWidth: '68%',
+    gap: 2,
+    backgroundColor: 'rgba(91,33,182,0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.25)',
+  },
+  waBotText: { fontSize: 12, color: 'rgba(221,214,254,0.95)', lineHeight: 16, fontFamily: 'Manrope_400Regular' },
+  waUserText: { fontSize: 12, color: '#FFFFFF', lineHeight: 16, fontFamily: 'Manrope_400Regular' },
+  waBubbleTime: { fontSize: 8, color: 'rgba(196,181,253,0.45)', fontFamily: 'Manrope_400Regular' },
+  waUserTime: { fontSize: 8, color: 'rgba(255,255,255,0.45)', textAlign: 'right' as const, fontFamily: 'Manrope_400Regular' },
+  waTypingBubble: {
+    backgroundColor: 'rgba(124,58,237,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.15)',
+    borderRadius: 12,
+    borderBottomLeftRadius: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  waTypingDots: { fontSize: 8, color: 'rgba(196,181,253,0.65)', letterSpacing: 3 },
+
+  // ── Step 2: nombre + moneda ────────────────────────────────────────────────
+  p2Label: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    color: 'rgba(221,214,254,0.78)',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    textTransform: 'uppercase' as const,
+    marginBottom: 7,
+  },
+  p2InputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.32)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 0,
+    height: 50,
+    gap: 10,
+  },
+  p2InputIcon: { fontSize: 20 },
+  p2Input: {
+    flex: 1,
+    fontSize: 17,
+    color: '#FFFFFF',
+    fontFamily: 'Manrope_500Medium',
+    height: 50,
+  },
+  p2CurrRow: { flexDirection: 'row', gap: 10 },
+  /** Halo claro sin caja — se lee mejor sobre fondo oscuro (iOS/Android/Web). */
+  p2CurrFlagEmoji: {
+    fontSize: 28,
+    lineHeight: 34,
+    textShadowColor: 'rgba(255,255,255,0.65)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
+  p2CurrCard: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.26)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    gap: 3,
+    position: 'relative' as const,
+  },
+  p2CurrCardActive: {
+    backgroundColor: 'rgba(124,58,237,0.45)',
+    borderColor: 'rgba(226,214,254,0.65)',
+    borderWidth: 1.5,
+  },
+  p2CurrLabel: { fontSize: 15, fontWeight: '700', fontFamily: 'PlusJakartaSans_700Bold' },
+  p2CurrSym: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontFamily: 'Manrope_600SemiBold',
+    textShadowColor: 'rgba(255,255,255,0.45)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
+  p2CurrSymActive: { color: '#FFFFFF' },
+  p2CurrSymInactive: { color: 'rgba(232,224,255,0.95)' },
+  p2CurrCheck: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: 'rgba(124,58,237,0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  p2SocialProof: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.26)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  p2SocialFlagEmoji: {
+    fontSize: 28,
+    lineHeight: 34,
+    marginRight: 10,
+    textShadowColor: 'rgba(255,255,255,0.65)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
+  p2SocialText: {
+    fontSize: 15,
+    color: 'rgba(226,232,240,0.9)',
+    flex: 1,
+    lineHeight: 22,
+    fontFamily: 'Manrope_500Medium',
+  },
+  p2StatsSectionLabel: {
+    width: '100%',
+    textAlign: 'center' as const,
+    marginBottom: 8,
+  },
+  p2StatsRow: { flexDirection: 'row', gap: 6, alignItems: 'stretch' as const },
+  p2StatCard: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,181,253,0.22)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 4,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  p2StatEyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.65,
+    lineHeight: 14,
+    textTransform: 'uppercase' as const,
+    fontFamily: 'PlusJakartaSans_700Bold',
+    textAlign: 'center' as const,
+    alignSelf: 'stretch' as const,
+    marginTop: -5,
+    marginBottom: -1,
+  },
+  p2StatValue: {
+    fontSize: 17,
+    fontWeight: '800',
+    fontFamily: 'PlusJakartaSans_700Bold',
+    lineHeight: 20,
+    textAlign: 'center' as const,
+    alignSelf: 'stretch' as const,
+  },
+  p2StatLabel: {
+    fontSize: 11,
+    color: 'rgba(214,206,250,0.72)',
+    fontFamily: 'Manrope_500Medium',
+    lineHeight: 15,
+    textAlign: 'center' as const,
+    alignSelf: 'stretch' as const,
+  },
+
+  welcomeBackLink: { alignSelf: 'flex-start', marginBottom: 4, paddingVertical: 4 },
   stepContent:   { gap: 20, alignItems: 'center', width: '100%', paddingTop: 4 },
-  stepIncomeLayout: { gap: 12, paddingTop: 0 },
+  stepIncomeLayout: { gap: 10, paddingTop: 0 },
   stepProfileLayout: { gap: 10, paddingTop: 0 },
 
-  // Theme picker (onboarding step 2)
+  // Theme picker (onboarding perfil)
   themePickerCard: {
     flex: 1,
     borderRadius: 16,
@@ -1636,7 +2747,7 @@ const S = StyleSheet.create({
     paddingHorizontal: 12,
   },
 
-  // Hero (step 0)
+  // Hero (paso contexto / stats)
   heroSection: { alignItems: 'center', gap: 12, paddingTop: 4, paddingBottom: 4 },
   heroIconOuter: { marginBottom: 6 },
   /** Borde fino tipo neón: ~1px de gradiente visible alrededor del relleno. */
@@ -1682,7 +2793,7 @@ const S = StyleSheet.create({
   },
   heroSub:     { fontSize: 14, textAlign: 'center', lineHeight: 22, fontFamily: 'Manrope_400Regular', maxWidth: 400, alignSelf: 'center' },
 
-  // Stat insight deck (paso 0)
+  // Stat insight deck (paso contexto)
   statDeck: {
     width: '100%',
     maxWidth: 520,
@@ -1800,28 +2911,34 @@ const S = StyleSheet.create({
   // Social proof
   socialProof: { flexDirection: 'row', alignItems: 'center', width: '100%', borderRadius: 14, borderWidth: 1, padding: 14 },
 
-  // Salary cards (step 1)
+  // Salary cards (paso ingresos)
   salaryCard:  { flexDirection: 'row', alignItems: 'center', borderRadius: 14, padding: 14, gap: 12 },
-  salaryCardIncome: { paddingVertical: 9, paddingHorizontal: 11, gap: 9, borderRadius: 12 },
-  salaryIconIncome: { fontSize: 18, width: 28, textAlign: 'center' as const },
-  salaryLabelIncome: { fontSize: 13 },
-  salarySubIncome: { fontSize: 10, lineHeight: 14, marginTop: 1 },
-  radioCircleIncome: { width: 18, height: 18, borderRadius: 9 },
-  radioInnerIncome: { width: 6, height: 6, borderRadius: 3 },
-  salaryLabel: { fontSize: 15, fontWeight: '700', fontFamily: 'PlusJakartaSans_600SemiBold' },
+  salaryCardIncome: { paddingVertical: 7, paddingHorizontal: 12, gap: 8, borderRadius: 12 },
+  salaryIconIncome: { fontSize: 22, width: 32, textAlign: 'center' as const },
+  salaryLabelIncome: { fontSize: 16, letterSpacing: 0.2 },
+  salarySubIncome: { fontSize: 12, lineHeight: 16, marginTop: 0 },
+  radioCircleIncome: { width: 20, height: 20, borderRadius: 10 },
+  radioInnerIncome: { width: 7, height: 7, borderRadius: 4 },
+  salaryLabel: { fontSize: 17, fontWeight: '700', fontFamily: 'PlusJakartaSans_600SemiBold' },
   radioCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   radioInner:  { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
   privacyNote: { width: '100%', borderRadius: 12, borderWidth: 1, padding: 14 },
-  privacyNoteIncome: { paddingVertical: 9, paddingHorizontal: 11 },
-  privacyTextIncome: { fontSize: 11, lineHeight: 15 },
+  privacyNoteIncome: { paddingVertical: 8, paddingHorizontal: 12 },
+  privacyTextIncome: { fontSize: 13, lineHeight: 18, fontFamily: 'Manrope_500Medium' },
   sectionTitleIncome: {
-    fontSize: 20,
+    fontSize: 23,
     fontWeight: '800',
-    lineHeight: 26,
+    lineHeight: 29,
+    letterSpacing: -0.2,
     textAlign: 'center' as const,
     fontFamily: 'PlusJakartaSans_700Bold',
   },
-  sectionSubIncome: { fontSize: 12, lineHeight: 17, textAlign: 'center' as const, fontFamily: 'Manrope_400Regular' },
+  sectionSubIncome: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center' as const,
+    fontFamily: 'Manrope_500Medium',
+  },
 
   // Section headers
   sectionTitle: { fontSize: 24, fontWeight: '800', lineHeight: 32, fontFamily: 'PlusJakartaSans_700Bold' },

@@ -1,7 +1,9 @@
 import { useRouter, type Href } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,16 +15,52 @@ import {
 } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
+import {
+  clearOnboardingResumeStepLocal,
+  ONBOARDING_LAST_STEP_INDEX,
+  readOnboardingDraftLocal,
+  writeOnboardingCompletedLocal,
+  writeOnboardingResumeStepLocal,
+} from '@/lib/preferences';
 import { useAuthStore } from '@/store/useAuthStore';
+
+type OnboardingDraft = { nombreUsuario?: string | null };
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { signUp, loading } = useAuthStore();
+  const backOp = useRef(new Animated.Value(0)).current;
+  const backTy = useRef(new Animated.Value(14)).current;
+  const headOp = useRef(new Animated.Value(0)).current;
+  const headTy = useRef(new Animated.Value(18)).current;
+  const cardOp = useRef(new Animated.Value(0)).current;
+  const cardTy = useRef(new Animated.Value(22)).current;
+
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    void (async () => {
+      const draft = await readOnboardingDraftLocal<OnboardingDraft>();
+      const n = draft?.nombreUsuario?.trim();
+      if (n) setNombre(n);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const up = (op: Animated.Value, ty: Animated.Value, delay: number) =>
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.parallel([
+          Animated.timing(op, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(ty, { toValue: 0, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        ]),
+      ]);
+    Animated.parallel([up(backOp, backTy, 0), up(headOp, headTy, 90), up(cardOp, cardTy, 180)]).start();
+  }, [backOp, backTy, headOp, headTy, cardOp, cardTy]);
 
   const handleRegister = async () => {
     setError('');
@@ -47,6 +85,7 @@ export default function RegisterScreen() {
       // signUp persiste nombre en user_profiles con columna id (= auth user id), no user_id (useAuthStore).
       await signUp(email.trim(), password, nombre.trim());
       setError('');
+      await clearOnboardingResumeStepLocal();
       router.replace('/(auth)/login' as any);
     } catch (err: unknown) {
       console.error('Signup error:', err);
@@ -68,16 +107,29 @@ export default function RegisterScreen() {
       style={[styles.container, { backgroundColor: T.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-          <Text style={{ color: T.textSecondary, fontSize: 15 }}>← Volver</Text>
-        </TouchableOpacity>
+        <Animated.View style={{ opacity: backOp, transform: [{ translateY: backTy }] }}>
+          <TouchableOpacity
+            onPress={() => {
+              void (async () => {
+                await writeOnboardingCompletedLocal(false);
+                await writeOnboardingResumeStepLocal(ONBOARDING_LAST_STEP_INDEX);
+                router.replace('/onboarding' as Href);
+              })();
+            }}
+            style={styles.back}>
+            <Text style={{ color: T.textSecondary, fontSize: 15 }}>← Volver</Text>
+          </TouchableOpacity>
+        </Animated.View>
 
-        <View style={styles.header}>
-          <Text style={styles.logo}>🚀</Text>
-          <Text style={[styles.title, { color: T.textPrimary }]}>Crear cuenta</Text>
-          <Text style={[styles.subtitle, { color: T.textSecondary }]}>Empieza tu journey financiero</Text>
-        </View>
+        <Animated.View style={{ opacity: headOp, transform: [{ translateY: headTy }] }}>
+          <View style={styles.header}>
+            <Text style={styles.logo}>🚀</Text>
+            <Text style={[styles.title, { color: T.textPrimary }]}>Crear cuenta</Text>
+            <Text style={[styles.subtitle, { color: T.textSecondary }]}>Empieza tu journey financiero</Text>
+          </View>
+        </Animated.View>
 
+        <Animated.View style={{ opacity: cardOp, transform: [{ translateY: cardTy }] }}>
         <View style={[styles.card, { backgroundColor: T.card, borderColor: T.glassBorder }]}>
           {(
             [
@@ -148,6 +200,7 @@ export default function RegisterScreen() {
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Crear cuenta gratis</Text>}
           </TouchableOpacity>
         </View>
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   );

@@ -19,6 +19,8 @@ export const STORAGE_KEYS = {
   ONBOARDING_DONE: 'ahorraya_onboarding_done',
   ONBOARDING_COMPLETED: 'ahorraya_onboarding_completed',
   ONBOARDING_DRAFT: 'ahorraya_onboarding_draft',
+  /** Paso del onboarding al que volver si el usuario regresa desde registro (0-based). */
+  ONBOARDING_RESUME_STEP: 'ahorraya_onboarding_resume_step',
   LAST_LOGIN: 'ahorraya_last_login',
   DARK_MODE: 'ahorraya_dark_mode',
   WA_PROMO_SHOWN: 'ahorraya_wa_promo_v1',
@@ -50,7 +52,33 @@ export async function readOnboardingCompletedLocal(): Promise<boolean> {
 
 export async function writeOnboardingCompletedLocal(done: boolean): Promise<void> {
   if (done) await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, 'true');
-  else await AsyncStorage.removeItem(STORAGE_KEYS.ONBOARDING_COMPLETED);
+  // Persistir 'false' explícito: si borramos la clave, readOnboardingCompletedLocal() caería en el flag legacy y podría seguir en true.
+  else await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, 'false');
+}
+
+/** Nuevo alta desde login: borrador limpio + flag local para volver a pasar por onboarding antes del registro. */
+export async function prepareSignupFromLoginLocal(): Promise<void> {
+  await clearOnboardingDraftLocal();
+  await clearOnboardingResumeStepLocal();
+  await writeOnboardingCompletedLocal(false);
+}
+
+/** Último índice de paso del onboarding (0-based). Mantener alineado con `TOTAL_STEPS - 1` en onboarding. */
+export const ONBOARDING_LAST_STEP_INDEX = 5;
+
+export async function writeOnboardingResumeStepLocal(step: number): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_RESUME_STEP, String(step));
+}
+
+export async function readOnboardingResumeStepLocal(): Promise<number | null> {
+  const v = await AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING_RESUME_STEP);
+  if (v == null || v === '') return null;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function clearOnboardingResumeStepLocal(): Promise<void> {
+  await AsyncStorage.removeItem(STORAGE_KEYS.ONBOARDING_RESUME_STEP);
 }
 
 /**

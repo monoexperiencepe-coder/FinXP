@@ -184,7 +184,8 @@ export default function RootLayout() {
           if (!inOnboarding) router.replace('/onboarding' as any);
           return;
         }
-        if (!inAuthGroup) router.replace('/(auth)/login' as any);
+        // Permitir /onboarding aunque completed sea true (p. ej. volver desde registro).
+        if (!inAuthGroup && !inOnboarding) router.replace('/(auth)/login' as any);
         return;
       }
 

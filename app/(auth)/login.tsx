@@ -15,6 +15,7 @@ import {
 
 import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme as T } from '@/constants/theme';
+import { prepareSignupFromLoginLocal } from '@/lib/preferences';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function LoginScreen() {
@@ -25,6 +26,11 @@ export default function LoginScreen() {
   const [mode, setMode] = useState<'password' | 'magic'>('password');
   const [error, setError] = useState('');
   const [showLoader, setShowLoader] = useState(false);
+
+  const goToSignupOnboarding = async () => {
+    await prepareSignupFromLoginLocal();
+    router.push('/onboarding' as Href);
+  };
 
   const handleSignIn = async () => {
     setError('');
@@ -147,7 +153,7 @@ export default function LoginScreen() {
 
         </View>
 
-        <TouchableOpacity onPress={() => router.push('/(auth)/register' as Href)}>
+        <TouchableOpacity onPress={() => void goToSignupOnboarding()}>
           <Text style={[styles.registerText, { color: T.textSecondary }]}>
             ¿No tienes cuenta? <Text style={{ color: T.primary, fontWeight: '700' }}>Regístrate gratis</Text>
           </Text>
