@@ -81,10 +81,20 @@ export function ThemePickerModal({ visible, onDone }: Props) {
     onDone();
   };
 
+  /** Atrás en Android: cerrar como confirmado para no bloquear el flujo siguiente (promo WA). */
+  const handleRequestClose = () => {
+    void handleConfirm();
+  };
+
   const T = storeTheme === 'dark' ? darkTheme : lightTheme;
 
   return (
-    <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={handleRequestClose}>
       {/* Backdrop sutil — el home se ve detrás */}
       <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.30)', opacity: backdropOp }]} />
 

@@ -124,6 +124,10 @@ function parseIngresoAproxInput(raw: string): number | null {
   return n;
 }
 
+function formatSolesHint(n: number): string {
+  return `S/. ${n.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
+}
+
 /** Perfil breve (paso 2): contexto para sugerencias futuras en la app (p. ej. presupuestos en inicio). */
 type OnboardingLifeSituationId =
   | ''
@@ -681,6 +685,45 @@ export default function OnboardingScreen() {
     if (pendingSalarioId === 'custom') return n <= 50_000_000;
     const b = SALARY_RANGE_BOUNDS[pendingSalarioId];
     return n >= b.min && n <= b.max;
+  }, [ingresoAprox, pendingSalarioId]);
+
+  /** Texto fijo: recuerda qué rango eligió y cuáles son los límites. */
+  const approxRangeExplanation = useMemo(() => {
+    if (!pendingSalarioId) return '';
+    if (pendingSalarioId === 'custom') {
+      return 'Indica un monto aproximado (referencia interna). Podrás ajustarlo después.';
+    }
+    const meta = SALARY_RANGES.find((r) => r.id === pendingSalarioId);
+    const label = meta?.label ?? 'tu rango';
+    const b = SALARY_RANGE_BOUNDS[pendingSalarioId];
+    if (pendingSalarioId === 'alto') {
+      return `Elegiste «${label}». El monto debe ser al menos ${formatSolesHint(b.min)}.`;
+    }
+    return `Elegiste «${label}». El monto debe estar entre ${formatSolesHint(b.min)} y ${formatSolesHint(b.max)}.`;
+  }, [pendingSalarioId]);
+
+  /** Aviso en vivo mientras escribe (fuera de rango, número inválido, etc.). */
+  const approxLiveHint = useMemo(() => {
+    const raw = ingresoAprox.trim();
+    if (!raw) return '';
+    const n = parseIngresoAproxInput(raw);
+    if (n == null) return 'Escribe un número válido (puedes usar coma o punto).';
+    if (n <= 0) return 'El monto debe ser mayor a cero.';
+    if (!pendingSalarioId) return '';
+    if (pendingSalarioId === 'custom') {
+      if (n > 50_000_000) return 'Ingresa un monto más realista.';
+      return '';
+    }
+    const b = SALARY_RANGE_BOUNDS[pendingSalarioId];
+    if (pendingSalarioId === 'alto') {
+      if (n < b.min) return `Ese valor no entra en el rango elegido. Debe ser al menos ${formatSolesHint(b.min)}.`;
+      if (n > b.max) return 'Ingresa un monto más realista.';
+      return '';
+    }
+    if (n < b.min || n > b.max) {
+      return `Ese valor no entra en el rango que elegiste. Debe estar entre ${formatSolesHint(b.min)} y ${formatSolesHint(b.max)}.`;
+    }
+    return '';
   }, [ingresoAprox, pendingSalarioId]);
 
   /** Gastos (elige categorías) → fuentes de ingreso. */
@@ -2070,6 +2113,21 @@ export default function OnboardingScreen() {
                 : 'Referencia aproximada para la app; luego tus gastos e ingresos reales marcarán el ritmo.'}
             </Text>
 
+            {approxRangeExplanation ? (
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: T.textPrimary,
+                  textAlign: 'center',
+                  marginBottom: 14,
+                  lineHeight: 18,
+                  fontFamily: 'Manrope_500Medium',
+                  paddingHorizontal: 4,
+                }}>
+                {approxRangeExplanation}
+              </Text>
+            ) : null}
+
             <View
               style={[
                 S.approxInputOuter,
@@ -2106,9 +2164,9 @@ export default function OnboardingScreen() {
               </View>
             </View>
 
-            {approxModalError ? (
+            {approxModalError || approxLiveHint ? (
               <Text style={{ fontSize: 12, color: T.error, textAlign: 'center', marginTop: 8, marginBottom: 4, paddingHorizontal: 4 }}>
-                {approxModalError}
+                {approxModalError || approxLiveHint}
               </Text>
             ) : null}
 

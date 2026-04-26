@@ -244,9 +244,9 @@ export default function HomeScreen() {
   const [asistenteWhatsappLoading, setAsistenteWhatsappLoading] = useState(false);
   const asistenteWhatsappLock = useRef(false);
   const [waBotPromoVisible, setWaBotPromoVisible] = useState(false);
-  const waPromoChecked = useRef(false);
   const [themePickerVisible, setThemePickerVisible] = useState(false);
-  const themePickerChecked = useRef(false);
+  /** El promo de WhatsApp solo corre después de cerrar el modal de tema (o si ya no aplica). */
+  const [themePickerGateDone, setThemePickerGateDone] = useState(false);
 
   // entrance animation refs
   const enterOpacity = useRef(new Animated.Value(0)).current;
@@ -272,16 +272,31 @@ export default function HomeScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Theme picker: mostrar solo 1 vez tras el primer login post-registro ──
+  // ── Theme picker (1×): cleanup evita doble timer en Strict Mode / remounts ──
   useEffect(() => {
-    if (!session || themePickerChecked.current) return;
-    themePickerChecked.current = true;
+    if (!session) {
+      setThemePickerGateDone(false);
+      setThemePickerVisible(false);
+      return;
+    }
+    let cancelled = false;
+    let showTimer: ReturnType<typeof setTimeout> | undefined;
+
     void readThemePickerShown().then((shown) => {
-      if (!shown) {
-        // Dar tiempo a la animación de entrada antes de mostrar el modal
-        setTimeout(() => setThemePickerVisible(true), 1200);
+      if (cancelled) return;
+      if (shown) {
+        setThemePickerGateDone(true);
+        return;
       }
+      showTimer = setTimeout(() => {
+        if (!cancelled) setThemePickerVisible(true);
+      }, 1200);
     });
+
+    return () => {
+      cancelled = true;
+      if (showTimer) clearTimeout(showTimer);
+    };
   }, [session]);
 
   useEffect(() => {
@@ -297,19 +312,20 @@ export default function HomeScreen() {
   }, []);
 
 
-  /* ── WhatsApp bot promo: aparece 2 s después del primer acceso si no está vinculado ── */
+  /* ── WhatsApp bot promo: solo después del modal de tema (o si el tema ya se había elegido) ── */
   useEffect(() => {
-    if (!session || waPromoChecked.current) return;
-    waPromoChecked.current = true;
+    if (!session || !themePickerGateDone) return;
 
+    let cancelled = false;
     const t = setTimeout(async () => {
+      if (cancelled) return;
       try {
         const alreadyShown = await readWaPromoShown();
-        if (alreadyShown) return;
+        if (cancelled || alreadyShown) return;
 
         const { data: { session: freshSession } } = await supabase.auth.getSession();
         const token = freshSession?.access_token;
-        if (!token) return;
+        if (!token || cancelled) return;
 
         const apiUrl = whatsappLinkCodeApiUrl();
         const res = await fetch(apiUrl, {
@@ -317,18 +333,23 @@ export default function HomeScreen() {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({}),
         });
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const data = await res.json() as { linked?: boolean };
+        if (cancelled) return;
         if (data.linked === false) {
           await markWaPromoShown();
-          setWaBotPromoVisible(true);
+          if (!cancelled) setWaBotPromoVisible(true);
         }
       } catch {
         /* silencioso: el promo no es crítico */
       }
-    }, 2000);
-    return () => clearTimeout(t);
-  }, [session]);
+    }, 900);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [session, themePickerGateDone]);
 
   /* ── Expense flow ── */
   const openExpenseFlow = useCallback(async () => {
@@ -616,7 +637,10 @@ export default function HomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
       <ThemePickerModal
         visible={themePickerVisible}
-        onDone={() => setThemePickerVisible(false)}
+        onDone={() => {
+          setThemePickerVisible(false);
+          setThemePickerGateDone(true);
+        }}
       />
       <Animated.View style={{ flex: 1, opacity: enterOpacity, transform: [{ translateY: enterTransY }] }}>
       <View style={{ flex: 1, maxWidth: maxW, width: '100%', alignSelf: 'center' }}>
