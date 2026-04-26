@@ -107,6 +107,23 @@ const SALARY_MEDIAN: Record<SalarioId, number> = {
   basico: 850, junior: 1800, medio: 4000, senior: 9000, alto: 15000, custom: 3000,
 };
 
+/** Límites inclusivos S/. para validar el monto del modal según el rango elegido (alineado con `SALARY_RANGES`). */
+const SALARY_RANGE_BOUNDS: Record<Exclude<SalarioId, 'custom'>, { min: number; max: number }> = {
+  basico: { min: 1, max: 1200 },
+  junior: { min: 1200, max: 2500 },
+  medio: { min: 2500, max: 6000 },
+  senior: { min: 6000, max: 12000 },
+  alto: { min: 12000, max: 50_000_000 },
+};
+
+function parseIngresoAproxInput(raw: string): number | null {
+  const t = raw.trim().replace(/\s/g, '').replace(/,/g, '');
+  if (t === '') return null;
+  const n = Number.parseFloat(t);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
 /** Perfil breve (paso 2): contexto para sugerencias futuras en la app (p. ej. presupuestos en inicio). */
 type OnboardingLifeSituationId =
   | ''
@@ -479,6 +496,7 @@ export default function OnboardingScreen() {
   const [showApproxModal, setShowApproxModal]     = useState(false);
   const [pendingSalarioId, setPendingSalarioId]   = useState<SalarioId | ''>('');
   const [ingresoAprox, setIngresoAprox]           = useState('');
+  const [approxModalError, setApproxModalError]   = useState('');
 
   // ── Theme selection (onboarding) ────────────────────────────────────────────
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -598,7 +616,9 @@ export default function OnboardingScreen() {
   const handleSalarioSelect = (id: SalarioId) => {
     setSalarioRango(id);
     setPendingSalarioId(id);
-    setIngresoAprox(id === 'custom' ? '' : String(SALARY_MEDIAN[id]));
+    // Abrir el modal en blanco para que el usuario ingrese su propio aproximado.
+    setIngresoAprox('');
+    setApproxModalError('');
     setShowApproxModal(true);
   };
 
@@ -626,9 +646,42 @@ export default function OnboardingScreen() {
   };
 
   const handleApproxConfirm = () => {
+    const n = parseIngresoAproxInput(ingresoAprox);
+    if (n == null || n <= 0) {
+      setApproxModalError('Ingresa un monto mayor a cero.');
+      return;
+    }
+    const pid = pendingSalarioId;
+    if (!pid) {
+      setApproxModalError('Vuelve a elegir tu rango de ingresos.');
+      return;
+    }
+    if (pid && pid !== 'custom') {
+      const b = SALARY_RANGE_BOUNDS[pid];
+      if (n < b.min || n > b.max) {
+        setApproxModalError(
+          `El monto debe estar entre S/. ${b.min.toLocaleString('es-PE')} y S/. ${b.max.toLocaleString('es-PE')} para el rango elegido.`,
+        );
+        return;
+      }
+    } else if (pid === 'custom' && n > 50_000_000) {
+      setApproxModalError('Ingresa un monto más realista.');
+      return;
+    }
+    setApproxModalError('');
+    setIngresoAprox(String(n));
     setShowApproxModal(false);
     scrollToIncomeContinueAfterApprox();
   };
+
+  const approxIncomeValid = useMemo(() => {
+    const n = parseIngresoAproxInput(ingresoAprox);
+    if (n == null || n <= 0) return false;
+    if (!pendingSalarioId) return false;
+    if (pendingSalarioId === 'custom') return n <= 50_000_000;
+    const b = SALARY_RANGE_BOUNDS[pendingSalarioId];
+    return n >= b.min && n <= b.max;
+  }, [ingresoAprox, pendingSalarioId]);
 
   /** Gastos (elige categorías) → fuentes de ingreso. */
   const goGastosToFuentesStep = () => {
@@ -2040,9 +2093,11 @@ export default function OnboardingScreen() {
                     Platform.OS === 'web' && ({ outlineStyle: 'none' } as object),
                   ]}
                   value={ingresoAprox}
-                  onChangeText={setIngresoAprox}
+                  onChangeText={(v) => {
+                    setApproxModalError('');
+                    setIngresoAprox(v);
+                  }}
                   keyboardType="decimal-pad"
-                  placeholder="0"
                   placeholderTextColor={T.textMuted}
                   autoFocus
                   underlineColorAndroid="transparent"
@@ -2051,25 +2106,25 @@ export default function OnboardingScreen() {
               </View>
             </View>
 
+            {approxModalError ? (
+              <Text style={{ fontSize: 12, color: T.error, textAlign: 'center', marginTop: 8, marginBottom: 4, paddingHorizontal: 4 }}>
+                {approxModalError}
+              </Text>
+            ) : null}
+
             <Text style={{ fontSize: 9, color: T.textMuted, textAlign: 'center', marginTop: 6, marginBottom: 16, opacity: 0.5 }}>
               🔒 Solo tú ves este dato · editable luego
             </Text>
 
             <TouchableOpacity
-              style={[S.ctaBtn, { backgroundColor: T.primary }]}
+              style={[
+                S.ctaBtn,
+                { backgroundColor: approxIncomeValid ? T.primary : T.surface, borderWidth: approxIncomeValid ? 0 : 1, borderColor: T.glassBorder },
+              ]}
               onPress={handleApproxConfirm}
+              disabled={!approxIncomeValid}
               activeOpacity={0.84}>
-              <Text style={S.ctaBtnText}>Continuar →</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ paddingVertical: 12, alignItems: 'center' }}
-              onPress={() => {
-                setShowApproxModal(false);
-                scrollToIncomeContinueAfterApprox();
-              }}>
-              <Text style={{ fontSize: 11, color: T.textMuted, opacity: 0.5 }}>
-                {pendingSalarioId === 'custom' ? 'Omitir por ahora' : 'Omitir, usar estimado del rango'}
-              </Text>
+              <Text style={[S.ctaBtnText, { color: approxIncomeValid ? '#fff' : T.textMuted }]}>Continuar →</Text>
             </TouchableOpacity>
           </View>
         </View>

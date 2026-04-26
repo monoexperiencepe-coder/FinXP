@@ -24,6 +24,8 @@ export const STORAGE_KEYS = {
   LAST_LOGIN: 'ahorraya_last_login',
   DARK_MODE: 'ahorraya_dark_mode',
   WA_PROMO_SHOWN: 'ahorraya_wa_promo_v1',
+  /** Modal de elección de tema (día/noche) — se muestra solo la primera vez tras registrarse. */
+  THEME_PICKER_SHOWN: 'ahorraya_theme_picker_shown_v1',
 } as const;
 
 /** Caché local rápido de onboarding. No es la fuente de verdad si hay sesión. */
@@ -173,4 +175,15 @@ export async function readWaPromoShown(): Promise<boolean> {
 /** Marca que el promo ya se mostró (no vuelve a aparecer). */
 export async function markWaPromoShown(): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEYS.WA_PROMO_SHOWN, 'true');
+}
+
+/** True si el modal de elección de tema ya fue mostrado al usuario (solo 1 vez tras registrarse). */
+export async function readThemePickerShown(): Promise<boolean> {
+  const v = await AsyncStorage.getItem(STORAGE_KEYS.THEME_PICKER_SHOWN);
+  return v === 'true';
+}
+
+/** Marca que el modal de tema ya se mostró. */
+export async function markThemePickerShown(): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.THEME_PICKER_SHOWN, 'true');
 }

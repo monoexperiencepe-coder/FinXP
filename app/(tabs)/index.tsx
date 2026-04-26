@@ -36,7 +36,8 @@ import {
   type JarvisMissionStep,
   type JarvisMissionStepId,
 } from '@/lib/jarvisMissions';
-import { markWaPromoShown, readWaPromoShown } from '@/lib/preferences';
+import { markWaPromoShown, markThemePickerShown, readThemePickerShown, readWaPromoShown } from '@/lib/preferences';
+import { ThemePickerModal } from '@/components/ThemePickerModal';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
@@ -244,6 +245,12 @@ export default function HomeScreen() {
   const asistenteWhatsappLock = useRef(false);
   const [waBotPromoVisible, setWaBotPromoVisible] = useState(false);
   const waPromoChecked = useRef(false);
+  const [themePickerVisible, setThemePickerVisible] = useState(false);
+  const themePickerChecked = useRef(false);
+
+  // entrance animation refs
+  const enterOpacity = useRef(new Animated.Value(0)).current;
+  const enterTransY  = useRef(new Animated.Value(28)).current;
 
   /* ── Announcer de insights ── */
   const [insightIdx, setInsightIdx] = useState(0);
@@ -254,6 +261,27 @@ export default function HomeScreen() {
     if (session) {
       loadFromSupabase().then(() => loadCategories());
     }
+  }, [session]);
+
+  // ── Entrance animation (runs once on mount) ──────────────────────────────
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(enterOpacity, { toValue: 1, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(enterTransY,  { toValue: 0, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Theme picker: mostrar solo 1 vez tras el primer login post-registro ──
+  useEffect(() => {
+    if (!session || themePickerChecked.current) return;
+    themePickerChecked.current = true;
+    void readThemePickerShown().then((shown) => {
+      if (!shown) {
+        // Dar tiempo a la animación de entrada antes de mostrar el modal
+        setTimeout(() => setThemePickerVisible(true), 1200);
+      }
+    });
   }, [session]);
 
   useEffect(() => {
@@ -586,6 +614,11 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
+      <ThemePickerModal
+        visible={themePickerVisible}
+        onDone={() => setThemePickerVisible(false)}
+      />
+      <Animated.View style={{ flex: 1, opacity: enterOpacity, transform: [{ translateY: enterTransY }] }}>
       <View style={{ flex: 1, maxWidth: maxW, width: '100%', alignSelf: 'center' }}>
         {toastVisible && (
           <FloatingToast
@@ -1387,6 +1420,7 @@ export default function HomeScreen() {
           onDismiss={() => setWaBotPromoVisible(false)}
         />
       </View>
+      </Animated.View>
     </SafeAreaView>
   );
 }
