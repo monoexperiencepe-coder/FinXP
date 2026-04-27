@@ -4,6 +4,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -12,25 +13,31 @@ import {
 import type { AppTheme } from '@/constants/theme';
 
 const { width: W, height: H } = Dimensions.get('window');
-const PERU_RED   = '#D91023';
-const CYAN       = '#00D4FF';
-const VIOLET     = '#C4B5FD';
-const PROGRESS_W = W * 0.58;
+const PERU_RED    = '#D91023';
+const CYAN        = '#00D4FF';
+const VIOLET      = '#C4B5FD';
+const GREEN       = '#22C55E';
+const GREEN_LIGHT = '#4ADE80';
+const PROGRESS_W  = W * 0.58;
 const DURATION_MS = 4000;
 const FADE_OUT_MS = 450;
 
-// ── Ambient particles (same concept as onboarding) ────────────────────────────
+// ── Ambient violet/cyan dot particles ────────────────────────────────────────
 const PARTICLE_CFG = [
-  { xFrac: 0.06, yFrac: 0.78, size: 3.5, dur: 7400, col: 'rgba(196,181,253,0.82)' },
-  { xFrac: 0.15, yFrac: 0.68, size: 4.0, dur: 8800, col: 'rgba(0,212,255,0.70)'   },
-  { xFrac: 0.27, yFrac: 0.86, size: 3.0, dur: 6600, col: 'rgba(167,139,250,0.78)' },
-  { xFrac: 0.38, yFrac: 0.60, size: 4.5, dur: 9200, col: 'rgba(196,181,253,0.72)' },
-  { xFrac: 0.50, yFrac: 0.75, size: 3.0, dur: 7800, col: 'rgba(221,214,254,0.68)' },
-  { xFrac: 0.61, yFrac: 0.83, size: 4.0, dur: 8200, col: 'rgba(0,212,255,0.74)'   },
-  { xFrac: 0.72, yFrac: 0.66, size: 3.0, dur: 6900, col: 'rgba(196,181,253,0.76)' },
-  { xFrac: 0.83, yFrac: 0.90, size: 4.5, dur: 9600, col: 'rgba(167,139,250,0.70)' },
-  { xFrac: 0.92, yFrac: 0.72, size: 3.0, dur: 7200, col: 'rgba(0,212,255,0.66)'   },
-  { xFrac: 0.43, yFrac: 0.94, size: 3.5, dur: 8400, col: 'rgba(221,214,254,0.72)' },
+  { xFrac: 0.08, yFrac: 0.74, size: 3.5, dur: 7400, col: 'rgba(196,181,253,0.82)' },
+  { xFrac: 0.30, yFrac: 0.82, size: 4.0, dur: 8800, col: 'rgba(0,212,255,0.70)'   },
+  { xFrac: 0.55, yFrac: 0.68, size: 3.0, dur: 6900, col: 'rgba(167,139,250,0.78)' },
+  { xFrac: 0.78, yFrac: 0.88, size: 4.0, dur: 9200, col: 'rgba(196,181,253,0.72)' },
+  { xFrac: 0.93, yFrac: 0.76, size: 3.0, dur: 7800, col: 'rgba(0,212,255,0.66)'   },
+] as const;
+
+// ── Floating $+ green symbols ─────────────────────────────────────────────────
+// X positions between the dots, Y starts lower, phase offset 0.5 to avoid sync.
+const DOLLAR_CFG = [
+  { xFrac: 0.19, yFrac: 0.90, fontSize: 11, dur: 8200, col: 'rgba(74,222,128,0.82)'  },
+  { xFrac: 0.43, yFrac: 0.86, fontSize: 12, dur: 9400, col: 'rgba(34,197,94,0.80)'   },
+  { xFrac: 0.67, yFrac: 0.92, fontSize: 10, dur: 7600, col: 'rgba(134,239,172,0.76)' },
+  { xFrac: 0.87, yFrac: 0.84, fontSize: 12, dur: 8800, col: 'rgba(74,222,128,0.78)'  },
 ] as const;
 
 type Props = { theme: AppTheme; onFinish: () => void };
@@ -59,25 +66,28 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
   const progressW     = useRef(new Animated.Value(0)).current;
   const shimmerX      = useRef(new Animated.Value(-100)).current;
 
-  // ── From onboarding: orbit rings + background blobs ─────────────────────────
-  const orbit1        = useRef(new Animated.Value(0)).current;
-  const orbit2        = useRef(new Animated.Value(1)).current;
-  const float1        = useRef(new Animated.Value(0)).current;
-  const float2        = useRef(new Animated.Value(0)).current;
-  const glowPulse     = useRef(new Animated.Value(0)).current;
+  // ── Orbit rings + blobs ──────────────────────────────────────────────────────
+  const orbit1    = useRef(new Animated.Value(0)).current;
+  const orbit2    = useRef(new Animated.Value(1)).current;
+  const orbit3    = useRef(new Animated.Value(0)).current; // green $-ring
+  const float1    = useRef(new Animated.Value(0)).current;
+  const float2    = useRef(new Animated.Value(0)).current;
+  const float3    = useRef(new Animated.Value(0)).current; // green blob float
+  const glowPulse = useRef(new Animated.Value(0)).current;
 
-  // ── Particles ────────────────────────────────────────────────────────────────
+  // ── Particle + $+ animations ─────────────────────────────────────────────────
   const particleAnims = useRef(PARTICLE_CFG.map(() => new Animated.Value(0))).current;
+  const dollarAnims   = useRef(DOLLAR_CFG.map(() => new Animated.Value(0))).current;
 
   useEffect(() => {
-    // ── 1. Peru side bars ───────────────────────────────────────────────────────
+    // 1. Peru side bars
     Animated.parallel([
       Animated.timing(leftBarX,    { toValue: 0, duration: 700, easing: Easing.out(Easing.exp), useNativeDriver: true }),
       Animated.timing(rightBarX,   { toValue: 0, duration: 700, easing: Easing.out(Easing.exp), useNativeDriver: true }),
       Animated.timing(barsOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
     ]).start();
 
-    // ── 2. Orb bloom ────────────────────────────────────────────────────────────
+    // 2. Orb bloom
     Animated.sequence([
       Animated.delay(100),
       Animated.parallel([
@@ -86,7 +96,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       ]),
     ]).start();
 
-    // ── 3. Pulsing ring ─────────────────────────────────────────────────────────
+    // 3. Pulsing ring
     Animated.sequence([
       Animated.delay(350),
       Animated.loop(Animated.sequence([
@@ -95,7 +105,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       ])),
     ]).start();
 
-    // ── 4. Diamond gem ──────────────────────────────────────────────────────────
+    // 4. Diamond gem
     Animated.sequence([
       Animated.delay(200),
       Animated.parallel([
@@ -104,7 +114,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       ]),
     ]).start();
 
-    // ── 5. Title ────────────────────────────────────────────────────────────────
+    // 5. Title
     Animated.sequence([
       Animated.delay(400),
       Animated.parallel([
@@ -113,13 +123,13 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       ]),
     ]).start();
 
-    // ── 6. Subtitle ─────────────────────────────────────────────────────────────
+    // 6. Subtitle
     Animated.sequence([
       Animated.delay(600),
       Animated.timing(subOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
     ]).start();
 
-    // ── 7. Badge ────────────────────────────────────────────────────────────────
+    // 7. Badge
     Animated.sequence([
       Animated.delay(800),
       Animated.parallel([
@@ -128,7 +138,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       ]),
     ]).start();
 
-    // ── 8. Progress bar ─────────────────────────────────────────────────────────
+    // 8. Progress bar
     Animated.timing(progressW, {
       toValue: PROGRESS_W,
       duration: DURATION_MS,
@@ -136,7 +146,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       useNativeDriver: false,
     }).start();
 
-    // ── 9. Shimmer sweep ────────────────────────────────────────────────────────
+    // 9. Shimmer
     Animated.sequence([
       Animated.delay(600),
       Animated.loop(Animated.sequence([
@@ -146,11 +156,12 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       ])),
     ]).start();
 
-    // ── 10. Orbit rings (from onboarding) ───────────────────────────────────────
+    // 10. Orbit rings
     Animated.loop(Animated.timing(orbit1, { toValue: 1, duration: 10000, easing: Easing.linear, useNativeDriver: true })).start();
     Animated.loop(Animated.timing(orbit2, { toValue: 0, duration: 16000, easing: Easing.linear, useNativeDriver: true })).start();
+    Animated.loop(Animated.timing(orbit3, { toValue: 1, duration: 22000, easing: Easing.linear, useNativeDriver: true })).start();
 
-    // ── 11. Background blobs (from onboarding) ──────────────────────────────────
+    // 11. Background blobs
     Animated.loop(Animated.sequence([
       Animated.timing(float1, { toValue: 1, duration: 5000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       Animated.timing(float1, { toValue: 0, duration: 5000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
@@ -159,14 +170,18 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       Animated.timing(float2, { toValue: 1, duration: 6000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       Animated.timing(float2, { toValue: 0, duration: 6000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
     ])).start();
+    Animated.loop(Animated.sequence([
+      Animated.timing(float3, { toValue: 1, duration: 7200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(float3, { toValue: 0, duration: 7200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ])).start();
 
-    // ── 12. Glow pulse (from onboarding) ────────────────────────────────────────
+    // 12. Glow pulse
     Animated.loop(Animated.sequence([
       Animated.timing(glowPulse, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       Animated.timing(glowPulse, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
     ])).start();
 
-    // ── 13. Particles (from onboarding) ─────────────────────────────────────────
+    // 13. Violet/cyan dot particles
     particleAnims.forEach((anim, i) => {
       const dur = PARTICLE_CFG[i].dur;
       const startPhase = i / PARTICLE_CFG.length;
@@ -180,7 +195,21 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
         .start(({ finished }) => { if (finished) runLoop(); });
     });
 
-    // ── 14. Fade out ────────────────────────────────────────────────────────────
+    // 14. $+ symbol particles — start phase offset by 0.5 so they never sync with dots
+    dollarAnims.forEach((anim, i) => {
+      const dur = DOLLAR_CFG[i].dur;
+      const startPhase = (i / DOLLAR_CFG.length + 0.5) % 1;
+      const runLoop = () => {
+        anim.setValue(0);
+        Animated.timing(anim, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true })
+          .start(({ finished }) => { if (finished) runLoop(); });
+      };
+      anim.setValue(startPhase);
+      Animated.timing(anim, { toValue: 1, duration: dur * (1 - startPhase), easing: Easing.linear, useNativeDriver: true })
+        .start(({ finished }) => { if (finished) runLoop(); });
+    });
+
+    // 14. Fade out
     const t = setTimeout(() => {
       Animated.timing(masterOpacity, {
         toValue: 0,
@@ -195,8 +224,10 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
 
   const orbit1Rotate = orbit1.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const orbit2Rotate = orbit2.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-  const blob1Y = float1.interpolate({ inputRange: [0, 1], outputRange: [0, -28] });
-  const blob2Y = float2.interpolate({ inputRange: [0, 1], outputRange: [0, 22] });
+  const orbit3Rotate = orbit3.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const blob1Y    = float1.interpolate({ inputRange: [0, 1], outputRange: [0, -28] });
+  const blob2Y    = float2.interpolate({ inputRange: [0, 1], outputRange: [0, 22] });
+  const blob3Y    = float3.interpolate({ inputRange: [0, 1], outputRange: [0, -18] });
   const glowOpacity = glowPulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.40] });
 
   return (
@@ -204,47 +235,94 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       pointerEvents="auto"
       style={[StyleSheet.absoluteFillObject, { zIndex: 99999, opacity: masterOpacity }]}>
 
-      {/* ── Background gradient (richer: dark has purple-cyan tones, like onboarding) */}
-      <LinearGradient
-        colors={isDark
-          ? [T.bg, '#0D0F28', '#100A22', T.surface]
-          : [T.bg, '#F0E8FF', '#E8F6FF', T.surface]}
-        start={{ x: 0.3, y: 0 }}
-        end={{ x: 0.7, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
+      {/* ── Fondo — idéntico al premium del onboarding ───────────────────── */}
+      <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden' }]} pointerEvents="none">
+        <LinearGradient
+          colors={isDark
+            ? ['#080018', '#0F0028', '#090016']
+            : ['#FAF8FF', '#EEE8FF', '#E8F6FF']}
+          locations={[0, 0.55, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
 
-      {/* ── Background blob 1: violet (from onboarding float) ─────────────────── */}
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: W * 0.1,
-          top: H * 0.12,
-          width: 260,
-          height: 260,
-          borderRadius: 130,
-          backgroundColor: isDark ? 'rgba(167,139,250,0.09)' : 'rgba(167,139,250,0.12)',
-          transform: [{ translateY: blob1Y }],
-        }}
-      />
+        {/* Blob púrpura arriba-derecha */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              width: 340, height: 340, borderRadius: 170,
+              backgroundColor: isDark ? 'rgba(124,58,237,0.42)' : 'rgba(124,58,237,0.18)',
+              top: -80, right: -90,
+              transform: [{ translateY: blob1Y }],
+            },
+            Platform.OS === 'web' && ({ filter: 'blur(88px)' } as object),
+          ]}
+        />
 
-      {/* ── Background blob 2: cyan (from onboarding float) ───────────────────── */}
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          right: W * 0.05,
-          bottom: H * 0.18,
-          width: 200,
-          height: 200,
-          borderRadius: 100,
-          backgroundColor: isDark ? 'rgba(0,212,255,0.07)' : 'rgba(0,212,255,0.10)',
-          transform: [{ translateY: blob2Y }],
-        }}
-      />
+        {/* Blob cyan abajo-izquierda */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              width: 300, height: 300, borderRadius: 150,
+              backgroundColor: isDark ? 'rgba(0,212,255,0.28)' : 'rgba(0,212,255,0.14)',
+              bottom: 60, left: -90,
+              transform: [{ translateY: blob2Y }],
+            },
+            Platform.OS === 'web' && ({ filter: 'blur(80px)' } as object),
+          ]}
+        />
 
-      {/* ── Diagonal accent lines (decorative) ────────────────────────────────── */}
+        {/* Blob verde abajo-centro (toque financiero) */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              width: 220, height: 220, borderRadius: 110,
+              backgroundColor: isDark ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.10)',
+              bottom: -40, right: W * 0.15,
+              transform: [{ translateY: blob3Y }],
+            },
+            Platform.OS === 'web' && ({ filter: 'blur(90px)' } as object),
+          ]}
+        />
+
+        {/* Blob violeta central sutil */}
+        <View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              width: 260, height: 260, borderRadius: 130,
+              backgroundColor: isDark ? 'rgba(109,40,217,0.22)' : 'rgba(109,40,217,0.10)',
+              top: '35%', left: '20%',
+            },
+            Platform.OS === 'web' && ({ filter: 'blur(120px)' } as object),
+          ]}
+        />
+
+        {/* Dot grid (web only) */}
+        {Platform.OS === 'web' && (
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                opacity: 0.18,
+                backgroundImage: 'radial-gradient(circle, rgba(196,181,253,0.9) 1px, transparent 1px)',
+                backgroundSize: '28px 28px',
+              } as any,
+            ]}
+          />
+        )}
+      </View>
+
+      {/* ── Diagonal accent lines ─────────────────────────────────────────────── */}
       <View style={[StyleSheet.absoluteFillObject, { opacity: 0.04 }]} pointerEvents="none">
         {[...Array(7)].map((_, i) => (
           <View
@@ -262,19 +340,13 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
         ))}
       </View>
 
-      {/* ── Floating ambient particles (from onboarding) ──────────────────────── */}
+      {/* ── Violet/cyan dot particles ─────────────────────────────────────────── */}
       {PARTICLE_CFG.map((p, i) => {
-        const floatY = particleAnims[i].interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -(H * 0.22)],
-        });
-        const fadeOut = particleAnims[i].interpolate({
-          inputRange: [0, 0.6, 1],
-          outputRange: [0, 0.9, 0],
-        });
+        const floatY = particleAnims[i].interpolate({ inputRange: [0, 1], outputRange: [0, -(H * 0.22)] });
+        const fadeOut = particleAnims[i].interpolate({ inputRange: [0, 0.08, 0.78, 1], outputRange: [0, 1, 1, 0] });
         return (
           <Animated.View
-            key={i}
+            key={`dot-${i}`}
             pointerEvents="none"
             style={{
               position: 'absolute',
@@ -291,72 +363,83 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
         );
       })}
 
+      {/* ── $+ fintech particles — savings symbols floating up ───────────────── */}
+      {DOLLAR_CFG.map((cfg, i) => {
+        const floatY = dollarAnims[i].interpolate({ inputRange: [0, 1], outputRange: [0, -(H * 0.24)] });
+        const fadeOut = dollarAnims[i].interpolate({ inputRange: [0, 0.08, 0.78, 1], outputRange: [0, 1, 1, 0] });
+        const plusSize = Math.round(cfg.fontSize * 0.62);
+        return (
+          <Animated.View
+            key={`sym-${i}`}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: W * cfg.xFrac,
+              top: H * cfg.yFrac,
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              opacity: fadeOut,
+              transform: [{ translateY: floatY }],
+            }}>
+            <Text style={{
+              fontSize: cfg.fontSize,
+              fontWeight: '800',
+              color: cfg.col,
+              fontFamily: 'Manrope_700Bold',
+              lineHeight: cfg.fontSize * 1.15,
+            }}>$</Text>
+            <Text style={{
+              fontSize: plusSize,
+              fontWeight: '900',
+              color: 'rgba(134,239,172,0.80)',
+              fontFamily: 'Manrope_700Bold',
+              lineHeight: plusSize * 1.1,
+              marginLeft: 1,
+              marginTop: -1,
+            }}>+</Text>
+          </Animated.View>
+        );
+      })}
+
       {/* ── LEFT Peru red bar ──────────────────────────────────────────────────── */}
       <Animated.View
         pointerEvents="none"
-        style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: 7,
-          opacity: barsOpacity,
-          transform: [{ translateX: leftBarX }],
-        }}>
+        style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 7, opacity: barsOpacity, transform: [{ translateX: leftBarX }] }}>
         <LinearGradient
           colors={[`${PERU_RED}00`, PERU_RED, PERU_RED, `${PERU_RED}00`]}
           start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
           style={{ flex: 1 }}
         />
       </Animated.View>
-
-      {/* ── LEFT glow halo ────────────────────────────────────────────────────── */}
       <Animated.View
         pointerEvents="none"
         style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 90, opacity: barsOpacity }}>
-        <LinearGradient
-          colors={[`${PERU_RED}30`, `${PERU_RED}00`]}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-          style={{ flex: 1 }}
-        />
+        <LinearGradient colors={[`${PERU_RED}30`, `${PERU_RED}00`]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
       </Animated.View>
 
       {/* ── RIGHT Peru red bar ────────────────────────────────────────────────── */}
       <Animated.View
         pointerEvents="none"
-        style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: 7,
-          opacity: barsOpacity,
-          transform: [{ translateX: rightBarX }],
-        }}>
+        style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 7, opacity: barsOpacity, transform: [{ translateX: rightBarX }] }}>
         <LinearGradient
           colors={[`${PERU_RED}00`, PERU_RED, PERU_RED, `${PERU_RED}00`]}
           start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
           style={{ flex: 1 }}
         />
       </Animated.View>
-
-      {/* ── RIGHT glow halo ───────────────────────────────────────────────────── */}
       <Animated.View
         pointerEvents="none"
         style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 90, opacity: barsOpacity }}>
-        <LinearGradient
-          colors={[`${PERU_RED}00`, `${PERU_RED}30`]}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-          style={{ flex: 1 }}
-        />
+        <LinearGradient colors={[`${PERU_RED}00`, `${PERU_RED}30`]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
       </Animated.View>
 
       {/* ── Main content ──────────────────────────────────────────────────────── */}
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
 
-        {/* Glow aura beneath gem (from onboarding) */}
+        {/* Glow aura */}
         <Animated.View
           pointerEvents="none"
-          style={{
-            position: 'absolute',
-            width: 220,
-            height: 220,
-            borderRadius: 110,
-            backgroundColor: 'transparent',
-            opacity: glowOpacity,
-          }}>
+          style={{ position: 'absolute', width: 220, height: 220, borderRadius: 110, backgroundColor: 'transparent', opacity: glowOpacity }}>
           <LinearGradient
             colors={[`${VIOLET}60`, `${CYAN}30`, 'transparent']}
             start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }}
@@ -364,61 +447,72 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
           />
         </Animated.View>
 
-        {/* Outer orbit ring 1 (from onboarding) */}
+        {/* Outer orbit ring 1 — violet */}
         <Animated.View
           pointerEvents="none"
           style={{
             position: 'absolute',
-            width: 220,
-            height: 220,
-            borderRadius: 110,
+            width: 220, height: 220, borderRadius: 110,
             borderWidth: StyleSheet.hairlineWidth,
             borderColor: isDark ? `${VIOLET}60` : `${VIOLET}80`,
             transform: [{ rotate: orbit1Rotate }],
             opacity: orbOpacity,
           }}>
-          {/* Orbit dot */}
           <View style={{
-            position: 'absolute',
-            top: -3, left: '50%',
+            position: 'absolute', top: -3, left: '50%',
             width: 6, height: 6, borderRadius: 3,
             backgroundColor: VIOLET,
             transform: [{ translateX: -3 }],
           }} />
         </Animated.View>
 
-        {/* Outer orbit ring 2 (from onboarding, opposite direction) */}
+        {/* Outer orbit ring 2 — cyan, dashed, opposite */}
         <Animated.View
           pointerEvents="none"
           style={{
             position: 'absolute',
-            width: 190,
-            height: 190,
-            borderRadius: 95,
+            width: 190, height: 190, borderRadius: 95,
             borderWidth: StyleSheet.hairlineWidth,
             borderColor: isDark ? `${CYAN}50` : `${CYAN}70`,
             borderStyle: 'dashed',
             transform: [{ rotate: orbit2Rotate }],
             opacity: orbOpacity,
           }}>
-          {/* Orbit dot */}
           <View style={{
-            position: 'absolute',
-            bottom: -3, left: '50%',
+            position: 'absolute', bottom: -3, left: '50%',
             width: 5, height: 5, borderRadius: 2.5,
             backgroundColor: CYAN,
             transform: [{ translateX: -2.5 }],
           }} />
         </Animated.View>
 
-        {/* Outer pulsing ring (original preloader) */}
+        {/* Outer orbit ring 3 — green (money ring), slow, wider */}
         <Animated.View
           pointerEvents="none"
           style={{
             position: 'absolute',
-            width: 160,
-            height: 160,
-            borderRadius: 80,
+            width: 258, height: 258, borderRadius: 129,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: isDark ? 'rgba(74,222,128,0.38)' : 'rgba(34,197,94,0.45)',
+            transform: [{ rotate: orbit3Rotate }],
+            opacity: orbOpacity,
+          }}>
+          {/* $ symbol traveling the ring */}
+          <Text style={{
+            position: 'absolute', top: -8, left: '50%',
+            fontSize: 11,
+            fontWeight: '800',
+            color: GREEN_LIGHT,
+            transform: [{ translateX: -5 }],
+          }}>$</Text>
+        </Animated.View>
+
+        {/* Pulsing red ring */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 160, height: 160, borderRadius: 80,
             borderWidth: 1.5,
             borderColor: PERU_RED,
             opacity: ring2Opacity,
@@ -430,15 +524,13 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
           pointerEvents="none"
           style={{
             position: 'absolute',
-            width: 130,
-            height: 130,
-            borderRadius: 65,
+            width: 130, height: 130, borderRadius: 65,
             opacity: orbOpacity,
             transform: [{ scale: orbScale }],
             overflow: 'hidden',
           }}>
           <LinearGradient
-            colors={[`${VIOLET}30`, `${PERU_RED}18`, `${CYAN}20`]}
+            colors={[`${VIOLET}30`, `${PERU_RED}18`, `${GREEN}15`]}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={{ flex: 1, borderRadius: 65 }}
           />
@@ -449,9 +541,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
           pointerEvents="none"
           style={{
             position: 'absolute',
-            width: 130,
-            height: 130,
-            borderRadius: 65,
+            width: 130, height: 130, borderRadius: 65,
             borderWidth: 1,
             borderColor: T.primaryBorder,
             opacity: orbOpacity,
@@ -519,7 +609,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
           </Text>
         </Animated.View>
 
-        {/* Progress bar */}
+        {/* Progress bar: rojo → violeta → cyan → verde */}
         <View style={{ marginTop: 44, alignItems: 'flex-start' }}>
           <View
             style={{
@@ -531,7 +621,8 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
             }}>
             <Animated.View style={{ height: 4, width: progressW, overflow: 'hidden', borderRadius: 4 }}>
               <LinearGradient
-                colors={[PERU_RED, VIOLET, CYAN]}
+                colors={[PERU_RED, VIOLET, CYAN, GREEN]}
+                locations={[0, 0.33, 0.66, 1]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={{ width: PROGRESS_W, height: 4 }}
@@ -539,11 +630,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
             </Animated.View>
             <Animated.View
               pointerEvents="none"
-              style={{
-                position: 'absolute', top: 0,
-                width: 80, height: 4,
-                transform: [{ translateX: shimmerX }],
-              }}>
+              style={{ position: 'absolute', top: 0, width: 80, height: 4, transform: [{ translateX: shimmerX }] }}>
               <LinearGradient
                 colors={['transparent', 'rgba(255,255,255,0.72)', 'transparent']}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
@@ -554,8 +641,8 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
 
           {/* Color dots legend */}
           <View style={{ flexDirection: 'row', marginTop: 10, gap: 6, alignSelf: 'center', width: PROGRESS_W }}>
-            {[PERU_RED, VIOLET, CYAN].map((c, i) => (
-              <View key={i} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: c, opacity: 0.7 }} />
+            {[PERU_RED, VIOLET, CYAN, GREEN].map((c, i) => (
+              <View key={i} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: c, opacity: 0.75 }} />
             ))}
           </View>
         </View>

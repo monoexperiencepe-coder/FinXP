@@ -28,6 +28,12 @@ export const STORAGE_KEYS = {
   THEME_PICKER_SHOWN: 'ahorraya_theme_picker_shown_v1',
 } as const;
 
+function themePickerShownKey(userId?: string | null): string {
+  const uid = userId?.trim();
+  if (!uid) return STORAGE_KEYS.THEME_PICKER_SHOWN;
+  return `${STORAGE_KEYS.THEME_PICKER_SHOWN}:${uid}`;
+}
+
 /** Caché local rápido de onboarding. No es la fuente de verdad si hay sesión. */
 export async function readOnboardingLocal(): Promise<boolean> {
   const v = await AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING_DONE);
@@ -178,12 +184,12 @@ export async function markWaPromoShown(): Promise<void> {
 }
 
 /** True si el modal de elección de tema ya fue mostrado al usuario (solo 1 vez tras registrarse). */
-export async function readThemePickerShown(): Promise<boolean> {
-  const v = await AsyncStorage.getItem(STORAGE_KEYS.THEME_PICKER_SHOWN);
+export async function readThemePickerShown(userId?: string | null): Promise<boolean> {
+  const v = await AsyncStorage.getItem(themePickerShownKey(userId));
   return v === 'true';
 }
 
 /** Marca que el modal de tema ya se mostró. */
-export async function markThemePickerShown(): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEYS.THEME_PICKER_SHOWN, 'true');
+export async function markThemePickerShown(userId?: string | null): Promise<void> {
+  await AsyncStorage.setItem(themePickerShownKey(userId), 'true');
 }

@@ -18,6 +18,7 @@ import {
 
 import { darkTheme, lightTheme } from '@/constants/theme';
 import { markThemePickerShown } from '@/lib/preferences';
+import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
 type ThemeOption = 'dark' | 'light';
@@ -30,6 +31,7 @@ interface Props {
 export function ThemePickerModal({ visible, onDone }: Props) {
   const setTheme   = useFinanceStore((s) => s.setTheme);
   const storeTheme = useFinanceStore((s) => s.theme);
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const [selected, setSelected] = useState<ThemeOption>(storeTheme);
 
   const backdropOp = useRef(new Animated.Value(0)).current;
@@ -77,7 +79,7 @@ export function ThemePickerModal({ visible, onDone }: Props) {
   };
 
   const handleConfirm = async () => {
-    await markThemePickerShown();
+    await markThemePickerShown(userId);
     onDone();
   };
 

@@ -21,7 +21,6 @@ import {
 import LoaderTransicion from '@/components/LoaderTransicion';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import {
-  writeDarkModeCache,
   clearOnboardingResumeStepLocal,
   ONBOARDING_LAST_STEP_INDEX,
   readOnboardingResumeStepLocal,
@@ -226,6 +225,22 @@ const PARTICLE_CFG = [
   { xFrac: 0.57, yFrac: 0.47, size: 3.0, dur: 9000, col: 'rgba(0,212,255,0.62)' },
 ] as const;
 
+// ── Floating $+ symbols — fintech savings particles (same as preloader) ───────
+const DOLLAR_CFG = [
+  { xFrac: 0.06, yFrac: 0.78, fontSize: 11, dur: 7400, col: 'rgba(74,222,128,0.82)'  },
+  { xFrac: 0.15, yFrac: 0.68, fontSize: 10, dur: 8800, col: 'rgba(34,197,94,0.78)'   },
+  { xFrac: 0.27, yFrac: 0.86, fontSize: 12, dur: 6600, col: 'rgba(74,222,128,0.80)'  },
+  { xFrac: 0.38, yFrac: 0.60, fontSize: 11, dur: 9200, col: 'rgba(34,197,94,0.84)'   },
+  { xFrac: 0.50, yFrac: 0.75, fontSize: 10, dur: 7800, col: 'rgba(134,239,172,0.72)' },
+  { xFrac: 0.61, yFrac: 0.83, fontSize: 13, dur: 8200, col: 'rgba(74,222,128,0.80)'  },
+  { xFrac: 0.72, yFrac: 0.66, fontSize: 10, dur: 6900, col: 'rgba(34,197,94,0.78)'   },
+  { xFrac: 0.83, yFrac: 0.90, fontSize: 12, dur: 9600, col: 'rgba(74,222,128,0.74)'  },
+  { xFrac: 0.92, yFrac: 0.72, fontSize: 11, dur: 7200, col: 'rgba(134,239,172,0.76)' },
+  { xFrac: 0.43, yFrac: 0.94, fontSize: 10, dur: 8400, col: 'rgba(34,197,94,0.80)'   },
+  { xFrac: 0.20, yFrac: 0.52, fontSize: 13, dur: 7600, col: 'rgba(74,222,128,0.82)'  },
+  { xFrac: 0.57, yFrac: 0.47, fontSize: 10, dur: 9000, col: 'rgba(134,239,172,0.70)' },
+] as const;
+
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
@@ -292,6 +307,7 @@ export default function OnboardingScreen() {
   const welcomeLine2     = useRef(new Animated.Value(0)).current;
   const welcomeCtaFade   = useRef(new Animated.Value(0)).current;
   const particleAnims    = useRef(PARTICLE_CFG.map(() => new Animated.Value(0))).current;
+  const dollarAnims      = useRef(DOLLAR_CFG.map(() => new Animated.Value(0))).current;
 
   // ── Step 1: WhatsApp chat demo ───────────────────────────────────────────────
   const waHeadOpacity = useRef(new Animated.Value(0)).current;
@@ -393,9 +409,25 @@ export default function OnboardingScreen() {
       Animated.timing(anim, { toValue: 1, duration: partialDur, easing: Easing.linear, useNativeDriver: true })
         .start(({ finished }) => { if (finished) runLoop(); });
     });
+    // Dollar $ symbols — same loop pattern, staggered phase
+    dollarAnims.forEach((anim, i) => {
+      const dur = DOLLAR_CFG[i].dur;
+      const startPhase = (i * 0.17 + 0.08) % 1;
+      const runDollar = () => {
+        if (!active) return;
+        anim.setValue(0);
+        Animated.timing(anim, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true })
+          .start(({ finished }) => { if (finished) runDollar(); });
+      };
+      anim.setValue(startPhase);
+      Animated.timing(anim, { toValue: 1, duration: dur * (1 - startPhase), easing: Easing.linear, useNativeDriver: true })
+        .start(({ finished }) => { if (finished) runDollar(); });
+    });
+
     return () => {
       active = false;
       particleAnims.forEach((a) => a.stopAnimation());
+      dollarAnims.forEach((a) => a.stopAnimation());
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -825,7 +857,6 @@ export default function OnboardingScreen() {
     setFinishing(true);
     try {
       const nombreGuardado = nombreUsuario.trim() || 'Usuario';
-      const themeMode: 'light' | 'dark' = isDarkMode ? 'dark' : 'light';
       const selectedIncomeCats = incomeSourceOptions.filter((c) => selectedIncomeSourceIds.includes(c.id));
 
       // Fase 2: solo persistencia local (sin tocar Supabase aún).
@@ -848,12 +879,6 @@ export default function OnboardingScreen() {
         })),
         onboardingDoneLocalAt: new Date().toISOString(),
       });
-
-      useFinanceStore.setState((state) => ({
-        ...state,
-        theme: themeMode,
-      }));
-      void writeDarkModeCache(themeMode);
 
       setFinishing(false);
       await writeOnboardingResumeStepLocal(ONBOARDING_LAST_STEP_INDEX);
@@ -928,18 +953,12 @@ export default function OnboardingScreen() {
               ]}
             />
           )}
-          {/* Floating particles */}
+          {/* Floating violet/cyan dot particles */}
           {particleAnims.map((anim, i) => {
             const cfg = PARTICLE_CFG[i];
             const travelDist = windowHeight * 0.44;
-            const pTransY = anim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, -travelDist],
-            });
-            const pOpacity = anim.interpolate({
-              inputRange: [0, 0.08, 0.78, 1],
-              outputRange: [0, 1, 1, 0],
-            });
+            const pTransY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, -travelDist] });
+            const pOpacity = anim.interpolate({ inputRange: [0, 0.08, 0.78, 1], outputRange: [0, 1, 1, 0] });
             return (
               <Animated.View
                 key={i}
@@ -1175,7 +1194,7 @@ export default function OnboardingScreen() {
               <Animated.View style={{ opacity: p2InputOp, width: '100%', marginBottom: 12 }}>
                 <Text style={S.p2Label}>Tu nombre o apodo</Text>
                 <View style={S.p2InputWrap}>
-                  <Text style={S.p2InputIcon}>🧑</Text>
+                  <Text style={S.p2InputIcon}>👫</Text>
                   <TextInput
                     style={[S.p2Input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]}
                     placeholder="¿Cómo te llamamos?"
@@ -2113,20 +2132,6 @@ export default function OnboardingScreen() {
                 : 'Referencia aproximada para la app; luego tus gastos e ingresos reales marcarán el ritmo.'}
             </Text>
 
-            {approxRangeExplanation ? (
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: T.textPrimary,
-                  textAlign: 'center',
-                  marginBottom: 14,
-                  lineHeight: 18,
-                  fontFamily: 'Manrope_500Medium',
-                  paddingHorizontal: 4,
-                }}>
-                {approxRangeExplanation}
-              </Text>
-            ) : null}
 
             <View
               style={[
@@ -2164,9 +2169,9 @@ export default function OnboardingScreen() {
               </View>
             </View>
 
-            {approxModalError || approxLiveHint ? (
+            {approxModalError ? (
               <Text style={{ fontSize: 12, color: T.error, textAlign: 'center', marginTop: 8, marginBottom: 4, paddingHorizontal: 4 }}>
-                {approxModalError || approxLiveHint}
+                {approxModalError}
               </Text>
             ) : null}
 
@@ -2175,14 +2180,10 @@ export default function OnboardingScreen() {
             </Text>
 
             <TouchableOpacity
-              style={[
-                S.ctaBtn,
-                { backgroundColor: approxIncomeValid ? T.primary : T.surface, borderWidth: approxIncomeValid ? 0 : 1, borderColor: T.glassBorder },
-              ]}
+              style={[S.ctaBtn, { backgroundColor: T.primary }]}
               onPress={handleApproxConfirm}
-              disabled={!approxIncomeValid}
               activeOpacity={0.84}>
-              <Text style={[S.ctaBtnText, { color: approxIncomeValid ? '#fff' : T.textMuted }]}>Continuar →</Text>
+              <Text style={[S.ctaBtnText, { color: '#fff' }]}>Continuar →</Text>
             </TouchableOpacity>
           </View>
         </View>

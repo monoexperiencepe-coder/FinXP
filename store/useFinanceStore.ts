@@ -272,7 +272,7 @@ export const useFinanceStore = create<FinanceState>()(
   persist(
     (set, get) => ({
       ...seedState(),
-      theme: 'light',
+      theme: 'dark',
       syncing: false,
       lastSync: null,
       loadingCategories: false,
@@ -729,7 +729,7 @@ export const useFinanceStore = create<FinanceState>()(
               : tRaw === 'dark'
                 ? 'dark'
                 : tRaw == null || String(tRaw).trim() === ''
-                  ? 'light'
+                  ? 'dark'
                   : prev.theme;
 
           set({

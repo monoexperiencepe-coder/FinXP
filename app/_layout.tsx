@@ -25,7 +25,6 @@ import { darkTheme, lightTheme } from '@/constants/theme';
 import {
   clearOnboardingLocal,
   clearLastLogin,
-  readDarkModeCache,
   readLastLoginMs,
   readOnboardingCompletedLocal,
 } from '@/lib/preferences';
@@ -88,12 +87,29 @@ export default function RootLayout() {
     if (error) throw error;
   }, [error]);
 
+  // Evita arrastrar el tema de una cuenta previa al cerrar sesión.
   useEffect(() => {
-    void (async () => {
-      const cached = await readDarkModeCache();
-      if (cached) useFinanceStore.setState({ theme: cached });
-    })();
-  }, []);
+    if (!initialized) return;
+    if (!session) {
+      useFinanceStore.setState((s) => ({
+        ...s,
+        profile: { ...s.profile, id: '', nombreUsuario: '' },
+        expenses: [],
+        incomes: [],
+        fixedExpenses: [],
+        creditCards: [],
+        budgets: [],
+        missions: [],
+        aiInsights: [],
+        categories: [],
+        incomeCategories: [],
+        onboardingCompleted: false,
+        syncing: false,
+        lastSync: null,
+        theme: 'dark',
+      }));
+    }
+  }, [initialized, session]);
 
   useEffect(() => {
     const initAuth = async () => {

@@ -15,7 +15,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   setPostLoginTransitionPending: (pending: boolean) => void;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, nombreUsuario: string) => Promise<void>;
+  signUp: (email: string, password: string, nombreUsuario: string, sueldoMensualFijo?: number | null) => Promise<void>;
   signOut: () => Promise<void>;
   sendMagicLink: (email: string) => Promise<void>;
 }
@@ -51,22 +51,28 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  signUp: async (email, password, nombreUsuario) => {
+  signUp: async (email, password, nombreUsuario, sueldoMensualFijo = null) => {
     set({ loading: true });
     try {
       const nombre = nombreUsuario.trim();
+      const sueldo = Number.isFinite(Number(sueldoMensualFijo)) && Number(sueldoMensualFijo) > 0
+        ? Number(sueldoMensualFijo)
+        : null;
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { nombre_usuario: nombre },
+          data: {
+            nombre_usuario: nombre,
+            sueldo_mensual_fijo: sueldo,
+          },
         },
       });
       if (error) throw error;
       const uid = data.user?.id;
       if (uid && nombre) {
         const { error: profileErr } = await supabase.from('user_profiles').upsert(
-          { id: uid, nombre_usuario: nombre, theme: 'light' },
+          { id: uid, nombre_usuario: nombre, theme: 'dark' },
           { onConflict: 'id' },
         );
         if (profileErr) console.error('user_profiles upsert (registro):', profileErr);

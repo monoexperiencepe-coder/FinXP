@@ -664,13 +664,13 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               })}
             </ScrollView>
 
-            {/* ─── SECCIÓN: ¿Es esencial? ─── */}
+            {/* ─── SECCIÓN: ¿Es fijo? ─── */}
             <Divider T={T} />
-            <SectionLabel label="¿ES UN GASTO ESENCIAL?" color={T.textMuted} />
+            <SectionLabel label="¿ES UN GASTO FIJO?" color={T.textMuted} />
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {([
-                { key: true, label: 'Esencial', emoji: '🔒' },
-                { key: false, label: 'No esencial', emoji: '🎈' },
+                { key: true, label: 'Fijo', emoji: '🔒' },
+                { key: false, label: 'No fijo', emoji: '🎈' },
               ] as const).map((opt) => {
                 const active = esEsencial === opt.key;
                 return (

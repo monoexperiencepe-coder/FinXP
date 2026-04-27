@@ -26,7 +26,10 @@ import {
 } from '@/lib/preferences';
 import { useAuthStore } from '@/store/useAuthStore';
 
-type OnboardingDraft = { nombreUsuario?: string | null };
+type OnboardingDraft = {
+  nombreUsuario?: string | null;
+  ingresoAprox?: number | null;
+};
 
 const PARTICLE_CFG = [
   { xFrac: 0.06, yFrac: 0.78, size: 3.5, dur: 7400, col: 'rgba(196,181,253,0.82)' },
@@ -62,12 +65,15 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [confirm,  setConfirm]  = useState('');
   const [error,    setError]    = useState('');
+  const [sueldoMensualFijo, setSueldoMensualFijo] = useState<number | null>(null);
 
   useEffect(() => {
     void (async () => {
       const draft = await readOnboardingDraftLocal<OnboardingDraft>();
       const n = draft?.nombreUsuario?.trim();
       if (n) setNombre(n);
+      const sueldo = Number(draft?.ingresoAprox);
+      if (Number.isFinite(sueldo) && sueldo > 0) setSueldoMensualFijo(sueldo);
     })();
   }, []);
 
@@ -123,7 +129,7 @@ export default function RegisterScreen() {
     if (password !== confirm)   { setError('Las contraseñas no coinciden'); return; }
 
     try {
-      await signUp(email.trim(), password, nombre.trim());
+      await signUp(email.trim(), password, nombre.trim(), sueldoMensualFijo);
       setError('');
       await clearOnboardingResumeStepLocal();
       router.replace('/(auth)/login' as any);
@@ -242,7 +248,7 @@ export default function RegisterScreen() {
 
               {(
                 [
-                  { label: 'Nombre', value: nombre, setter: setNombre, placeholder: 'Tu nombre', type: 'default' as const, icon: '🧑' },
+                  { label: 'Nombre', value: nombre, setter: setNombre, placeholder: 'Tu nombre', type: 'default' as const, icon: '👫' },
                   { label: 'Email', value: email, setter: setEmail, placeholder: 'tu@email.com', type: 'email-address' as const, icon: '✉️' },
                   { label: 'Contraseña', value: password, setter: setPassword, placeholder: 'Mínimo 6 caracteres', secure: true, type: 'default' as const, icon: '🔒' },
                   { label: 'Confirmar contraseña', value: confirm, setter: setConfirm, placeholder: 'Repite tu contraseña', secure: true, type: 'default' as const, icon: '🔑' },

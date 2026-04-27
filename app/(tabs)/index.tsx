@@ -36,7 +36,7 @@ import {
   type JarvisMissionStep,
   type JarvisMissionStepId,
 } from '@/lib/jarvisMissions';
-import { markWaPromoShown, markThemePickerShown, readThemePickerShown, readWaPromoShown } from '@/lib/preferences';
+import { markWaPromoShown, readThemePickerShown, readWaPromoShown } from '@/lib/preferences';
 import { ThemePickerModal } from '@/components/ThemePickerModal';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -127,7 +127,17 @@ function WebDonut({ usedPct, arcColor, trackColor }: { usedPct: number; arcColor
   return (
     <View style={{ width: 132, height: 132 }}>
       <PieChart width={132} height={132}>
-        <Pie data={chartData} dataKey="value" cx="50%" cy="50%" innerRadius={42} outerRadius={55} startAngle={90} endAngle={-270} paddingAngle={0}>
+        <Pie
+          data={chartData}
+          dataKey="value"
+          cx="50%"
+          cy="50%"
+          innerRadius={42}
+          outerRadius={55}
+          startAngle={90}
+          endAngle={-270}
+          paddingAngle={0}
+          isAnimationActive={false}>
           {chartData.map((entry) => <Cell key={entry.name} fill={entry.color} stroke="none" />)}
         </Pie>
       </PieChart>
@@ -232,8 +242,9 @@ export default function HomeScreen() {
   const missions    = useFinanceStore((s) => s.missions);
   const getWeekSpent = useFinanceStore((s) => s.getWeekSpent);
   const loadFromSupabase = useFinanceStore((s) => s.loadFromSupabase);
-  const loadCategories   = useFinanceStore((s) => s.loadCategories);
   const session = useAuthStore((s) => s.session);
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const sessionUserId = session?.user?.id ?? null;
 
   const [expenseSheetOpen,    setExpenseSheetOpen]    = useState(false);
   const [incomeSheetOpen,     setIncomeSheetOpen]     = useState(false);
@@ -245,12 +256,13 @@ export default function HomeScreen() {
   const asistenteWhatsappLock = useRef(false);
   const [waBotPromoVisible, setWaBotPromoVisible] = useState(false);
   const [themePickerVisible, setThemePickerVisible] = useState(false);
-  /** El promo de WhatsApp solo corre después de cerrar el modal de tema (o si ya no aplica). */
+  /** El promo WA espera a que termine reveal + modal de tema. */
   const [themePickerGateDone, setThemePickerGateDone] = useState(false);
+  /** Evita doble apertura del modal por remount/hidratación. */
+  const themePickerScheduledRef = useRef(false);
+  /** Evita parpadeo con datos del usuario anterior al cambiar de sesión. */
+  const [homeReady, setHomeReady] = useState(false);
 
-  // entrance animation refs
-  const enterOpacity = useRef(new Animated.Value(0)).current;
-  const enterTransY  = useRef(new Animated.Value(28)).current;
 
   /* ── Announcer de insights ── */
   const [insightIdx, setInsightIdx] = useState(0);
@@ -259,45 +271,57 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (session) {
-      loadFromSupabase().then(() => loadCategories());
+      void loadFromSupabase();
+    }
+  }, [session, loadFromSupabase]);
+
+  // Espera a que el perfil en store sea del usuario de la sesión actual.
+  useEffect(() => {
+    if (!session || !sessionUserId) {
+      setHomeReady(false);
+      return;
+    }
+    if (profile.id !== sessionUserId) {
+      setHomeReady(false);
+      return;
+    }
+    const t = setTimeout(() => setHomeReady(true), 1000);
+    return () => clearTimeout(t);
+  }, [session, sessionUserId, profile.id]);
+
+  useEffect(() => {
+    if (!session) {
+      setThemePickerVisible(false);
+      setThemePickerGateDone(false);
+      themePickerScheduledRef.current = false;
     }
   }, [session]);
 
-  // ── Entrance animation (runs once on mount) ──────────────────────────────
+  // ── Apertura modal de tema tras entrar al home ───────────────────────────────
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(enterOpacity, { toValue: 1, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(enterTransY,  { toValue: 0, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-    ]).start();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Theme picker (1×): cleanup evita doble timer en Strict Mode / remounts ──
-  useEffect(() => {
-    if (!session) {
-      setThemePickerGateDone(false);
-      setThemePickerVisible(false);
-      return;
-    }
+    if (!session || !userId || !homeReady) return;
+    if (themePickerScheduledRef.current || themePickerVisible || themePickerGateDone) return;
+    themePickerScheduledRef.current = true;
     let cancelled = false;
-    let showTimer: ReturnType<typeof setTimeout> | undefined;
+    let modalTimer: ReturnType<typeof setTimeout> | undefined;
 
-    void readThemePickerShown().then((shown) => {
-      if (cancelled) return;
-      if (shown) {
-        setThemePickerGateDone(true);
-        return;
-      }
-      showTimer = setTimeout(() => {
-        if (!cancelled) setThemePickerVisible(true);
-      }, 1200);
-    });
+    // Se muestra al terminar el efecto progresivo (unos segundos en total).
+    modalTimer = setTimeout(() => {
+      void readThemePickerShown(userId).then((shown) => {
+        if (cancelled) return;
+        if (shown) {
+          setThemePickerGateDone(true);
+          return;
+        }
+        setThemePickerVisible(true);
+      });
+    }, 2200);
 
     return () => {
       cancelled = true;
-      if (showTimer) clearTimeout(showTimer);
+      if (modalTimer) clearTimeout(modalTimer);
     };
-  }, [session]);
+  }, [session, userId, homeReady, themePickerVisible, themePickerGateDone]);
 
   useEffect(() => {
     void loadJarvisSkipped().then((ids) => {
@@ -312,7 +336,7 @@ export default function HomeScreen() {
   }, []);
 
 
-  /* ── WhatsApp bot promo: solo después del modal de tema (o si el tema ya se había elegido) ── */
+  /* ── WhatsApp bot promo ── */
   useEffect(() => {
     if (!session || !themePickerGateDone) return;
 
@@ -454,13 +478,37 @@ export default function HomeScreen() {
     [expenses, mesActual],
   );
   const limiteMes = useMemo(() => budgets.reduce((s, b) => s + b.limiteMonthly, 0), [budgets]);
-  const pctUsado  = limiteMes > 0 ? Math.min((gastadoMes / limiteMes) * 100, 100) : 0;
+  const ingresosSalarioMes = useMemo(
+    () =>
+      incomes
+        .filter((i) => i.mes === mesActual && i.tipo === 'Salario')
+        .reduce((s, i) => s + i.importe, 0),
+    [incomes, mesActual],
+  );
+  const sueldoRegistrado = useMemo(() => {
+    const raw = session?.user?.user_metadata?.sueldo_mensual_fijo;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [session?.user?.user_metadata?.sueldo_mensual_fijo]);
+  const sueldoBase = sueldoRegistrado > 0 ? sueldoRegistrado : ingresosSalarioMes;
+  const presupuestoRecomendadoMes = sueldoBase > 0 ? sueldoBase * 0.7 : limiteMes;
+  const ahorroObjetivoMes = sueldoBase > 0 ? sueldoBase * 0.3 : 0;
+  const pctUsado  = presupuestoRecomendadoMes > 0 ? Math.min((gastadoMes / presupuestoRecomendadoMes) * 100, 100) : 0;
 
   const todaySpent = useMemo(
     () => expenses.filter((e) => toDateKey(new Date(e.fecha)) === todayKey).reduce((s, e) => s + e.importe, 0),
     [expenses, todayKey],
   );
   const weekSpent = useMemo(() => getWeekSpent(), [getWeekSpent, expenses]);
+  const currentDayOfMonth = new Date().getDate();
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const daysRemaining = Math.max(1, daysInMonth - currentDayOfMonth + 1);
+  const restanteRecomendado = Math.max(0, presupuestoRecomendadoMes - gastadoMes);
+  const topeDiarioRecomendado = presupuestoRecomendadoMes > 0 ? restanteRecomendado / daysRemaining : 0;
+  const todayHeaderDate = `${String(currentDayOfMonth).padStart(2, '0')} ${new Date()
+    .toLocaleDateString('es-PE', { month: 'long' })
+    .replace('.', '')
+    .toUpperCase()}`;
 
   /* Top 4 categorías de HOY (para resumen rápido en home) */
   const todayTopCats = useMemo(() => {
@@ -642,8 +690,16 @@ export default function HomeScreen() {
           setThemePickerGateDone(true);
         }}
       />
-      <Animated.View style={{ flex: 1, opacity: enterOpacity, transform: [{ translateY: enterTransY }] }}>
       <View style={{ flex: 1, maxWidth: maxW, width: '100%', alignSelf: 'center' }}>
+        {!homeReady ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <ActivityIndicator size="small" color={T.primary} />
+            <Text style={{ fontFamily: Font.manrope500, fontSize: 12, color: T.textMuted }}>
+              Cargando tu inicio...
+            </Text>
+          </View>
+        ) : (
+          <>
         {toastVisible && (
           <FloatingToast
             emoji={toastMsg.emoji}
@@ -698,6 +754,7 @@ export default function HomeScreen() {
           </View>
 
           {/* ── CARD PREMIUM ── */}
+          <View>
           <GradientView
             colors={premiumGrad}
             style={{
@@ -758,27 +815,24 @@ export default function HomeScreen() {
                       : <NativeDonut usedPct={pctUsado} arcColor={arcColorDonut} trackColor={donutTrackColor} />}
                   </View>
                   <View style={{ alignItems: 'center', paddingHorizontal: 6 }}>
-                    {limiteMes > 0 ? (
-                      /* ── Con presupuesto: muestra % ── */
+                    {presupuestoRecomendadoMes > 0 ? (
+                      /* ── Con sueldo/base: usa objetivo 70/30 ── */
                       <>
                         <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 20, lineHeight: 22, textAlign: 'center', letterSpacing: -0.5 }}>
                           {Math.round(pctUsado)}%
                         </Text>
                         <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 8, marginTop: 1, letterSpacing: 0.5 }}>
-                          DEL PRESUPUESTO
+                          USO RECOMENDADO (70%)
                         </Text>
                         <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 8, marginTop: 3, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>
-                          {formatMoney(gastadoMes, profile.monedaPrincipal)} / {formatMoney(limiteMes, profile.monedaPrincipal)}
+                          {formatMoney(gastadoMes, profile.monedaPrincipal)} / {formatMoney(presupuestoRecomendadoMes, profile.monedaPrincipal)}
                         </Text>
                       </>
                     ) : (
-                      /* ── Sin presupuesto: promedio diario ── */
+                      /* ── Sin base aún: fallback simple ── */
                       <>
                         <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 15, lineHeight: 18, textAlign: 'center', letterSpacing: -0.3 }} numberOfLines={1} adjustsFontSizeToFit>
-                          {formatMoney(
-                            gastadoMes > 0 ? gastadoMes / new Date().getDate() : 0,
-                            profile.monedaPrincipal,
-                          )}
+                          {formatMoney(gastadoMes > 0 ? gastadoMes / currentDayOfMonth : 0, profile.monedaPrincipal)}
                         </Text>
                         <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 8, marginTop: 1, letterSpacing: 0.5 }}>
                           PROMEDIO/DÍA
@@ -811,6 +865,9 @@ export default function HomeScreen() {
                     {
                       label: 'MES',
                       value: formatMoney(gastadoMes, profile.monedaPrincipal),
+                      subValue: presupuestoRecomendadoMes > 0
+                        ? `Te quedan ${formatMoney(restanteRecomendado, profile.monedaPrincipal)} · ${formatMoney(topeDiarioRecomendado, profile.monedaPrincipal)}/día`
+                        : undefined,
                       accent: '#7C3AED',
                       dim: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
                       borderA: isDark ? '33' : '28',
@@ -832,13 +889,44 @@ export default function HomeScreen() {
                       <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 10, letterSpacing: 1 }}>
                         {m.label}
                       </Text>
-                      <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 13 }} numberOfLines={1}>
-                        {m.value}
-                      </Text>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 13 }} numberOfLines={1}>
+                          {m.value}
+                        </Text>
+                        {m.subValue ? (
+                          <Text
+                            style={{
+                              fontFamily: Font.manrope600,
+                              color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted,
+                              fontSize: 9,
+                              marginTop: 1,
+                            }}>
+                            {m.subValue}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
                   ))}
                 </View>
               </View>
+
+              {presupuestoRecomendadoMes > 0 ? (
+                <Text
+                  style={{
+                    marginTop: -2,
+                    marginBottom: 10,
+                    fontFamily: Font.manrope600,
+                    fontSize: 10,
+                    color:
+                      currentDayOfMonth >= daysInMonth && gastadoMes <= presupuestoRecomendadoMes
+                        ? (isDark ? '#4DF2B1' : '#0B8E52')
+                        : (isDark ? 'rgba(255,255,255,0.45)' : T.textMuted),
+                  }}>
+                  {currentDayOfMonth >= daysInMonth && gastadoMes <= presupuestoRecomendadoMes
+                    ? `Felicitaciones, ahorraste ${formatMoney(ahorroObjetivoMes, profile.monedaPrincipal)} (${Math.round((ahorroObjetivoMes / Math.max(sueldoBase, 1)) * 100)}% de tu sueldo) 🎉`
+                    : `Meta sugerida: gastar hasta ${formatMoney(presupuestoRecomendadoMes, profile.monedaPrincipal)} y ahorrar ${formatMoney(ahorroObjetivoMes, profile.monedaPrincipal)} (30%).`}
+                </Text>
+              ) : null}
 
               {/* Separador */}
               <View style={{
@@ -851,19 +939,50 @@ export default function HomeScreen() {
               <View style={{ gap: 0 }}>
                 {/* Cabecera centrada */}
                 <View style={{ alignItems: 'center', marginBottom: 12 }}>
-                  <Text style={{
-                    fontFamily: Font.manrope600,
-                    color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted,
-                    fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4,
-                  }}>
-                    HOY
-                  </Text>
+                  <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <Text style={{
+                      fontFamily: Font.manrope600,
+                      color: isDark ? '#FFFFFF' : T.textPrimary,
+                      fontSize: 13,
+                      letterSpacing: 2.6,
+                      textTransform: 'uppercase',
+                    }}>
+                      HOY
+                    </Text>
+                    <View
+                      style={{
+                        borderRadius: 8,
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        backgroundColor: isDark ? 'rgba(124,58,237,0.3)' : 'rgba(124,58,237,0.14)',
+                        borderWidth: 1,
+                        borderColor: isDark ? 'rgba(124,58,237,0.65)' : 'rgba(124,58,237,0.35)',
+                      }}>
+                      <Text
+                        style={{
+                          fontFamily: Font.manrope600,
+                          color: isDark ? '#E1D8FF' : T.primary,
+                          fontSize: 12,
+                          letterSpacing: 0.7,
+                        }}>
+                        📅 {todayHeaderDate}
+                      </Text>
+                    </View>
+                  </View>
                   <Text style={{
                     fontFamily: Font.jakarta700,
                     color: isDark ? '#FFFFFF' : T.textPrimary,
-                    fontSize: 26, lineHeight: 30, letterSpacing: -0.5,
+                    fontSize: 32, lineHeight: 36, letterSpacing: -0.6,
                   }}>
                     {formatMoney(todaySpent, profile.monedaPrincipal)}
+                  </Text>
+                  <Text style={{
+                    fontFamily: Font.manrope500,
+                    color: isDark ? 'rgba(255,255,255,0.62)' : T.textSecondary,
+                    fontSize: 12,
+                    marginTop: 3,
+                  }}>
+                    Total de hoy
                   </Text>
                   <GradientView
                     colors={isDark ? (['#7C3AED', '#00D4FF'] as const) : ([T.primary, T.primary] as const)}
@@ -996,6 +1115,7 @@ export default function HomeScreen() {
               </View>
             </View>
           </GradientView>
+          </View>
 
           {/* ── CTAs EN FILA ── */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
@@ -1443,8 +1563,9 @@ export default function HomeScreen() {
           onConnect={handleWaPromoConnect}
           onDismiss={() => setWaBotPromoVisible(false)}
         />
+          </>
+        )}
       </View>
-      </Animated.View>
     </SafeAreaView>
   );
 }
