@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   Animated,
   Dimensions,
   Easing,
@@ -19,7 +20,7 @@ const VIOLET      = '#C4B5FD';
 const GREEN       = '#22C55E';
 const GREEN_LIGHT = '#4ADE80';
 const PROGRESS_W  = W * 0.58;
-const DURATION_MS = 4000;
+const DURATION_MS = 3000;
 const FADE_OUT_MS = 450;
 
 // ── Ambient violet/cyan dot particles ────────────────────────────────────────
@@ -47,6 +48,27 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
   onFinishRef.current = onFinish;
 
   const isDark = T.textPrimary === '#FFFFFF';
+  const isWeb = Platform.OS === 'web';
+  const androidApi = Platform.OS === 'android' && typeof Platform.Version === 'number' ? Platform.Version : 999;
+  const shortEdge = Math.min(W, H);
+  const likelyLowEndMobile =
+    Platform.OS === 'android' && (androidApi <= 27 || shortEdge <= 720);
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const lowMotion = isWeb || likelyLowEndMobile || reduceMotionEnabled;
+
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (mounted) setReduceMotionEnabled(Boolean(enabled));
+      })
+      .catch(() => {
+        if (mounted) setReduceMotionEnabled(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // ── Core preloader values ────────────────────────────────────────────────────
   const masterOpacity = useRef(new Animated.Value(1)).current;
@@ -65,6 +87,21 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
   const badgeScale    = useRef(new Animated.Value(0.85)).current;
   const progressW     = useRef(new Animated.Value(0)).current;
   const shimmerX      = useRef(new Animated.Value(-100)).current;
+  /** 0 ↔ 1 drives a small rotation on the 💎 only. */
+  const gemSwing      = useRef(new Animated.Value(0)).current;
+
+  // Slow gem tilt — only the emoji pivots (no whole-stack bounce); respect reduce motion.
+  useEffect(() => {
+    if (reduceMotionEnabled) return;
+    const swing = Animated.loop(
+      Animated.sequence([
+        Animated.timing(gemSwing, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(gemSwing, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+      ]),
+    );
+    swing.start();
+    return () => swing.stop();
+  }, [reduceMotionEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Orbit rings + blobs ──────────────────────────────────────────────────────
   const orbit1    = useRef(new Animated.Value(0)).current;
@@ -147,19 +184,23 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
     }).start();
 
     // 9. Shimmer
-    Animated.sequence([
-      Animated.delay(600),
-      Animated.loop(Animated.sequence([
-        Animated.timing(shimmerX, { toValue: PROGRESS_W + 100, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(shimmerX, { toValue: -100, duration: 0, useNativeDriver: true }),
-        Animated.delay(900),
-      ])),
-    ]).start();
+    if (!lowMotion) {
+      Animated.sequence([
+        Animated.delay(600),
+        Animated.loop(Animated.sequence([
+          Animated.timing(shimmerX, { toValue: PROGRESS_W + 100, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(shimmerX, { toValue: -100, duration: 0, useNativeDriver: true }),
+          Animated.delay(900),
+        ])),
+      ]).start();
+    }
 
     // 10. Orbit rings
     Animated.loop(Animated.timing(orbit1, { toValue: 1, duration: 10000, easing: Easing.linear, useNativeDriver: true })).start();
-    Animated.loop(Animated.timing(orbit2, { toValue: 0, duration: 16000, easing: Easing.linear, useNativeDriver: true })).start();
-    Animated.loop(Animated.timing(orbit3, { toValue: 1, duration: 22000, easing: Easing.linear, useNativeDriver: true })).start();
+    if (!lowMotion) {
+      Animated.loop(Animated.timing(orbit2, { toValue: 0, duration: 16000, easing: Easing.linear, useNativeDriver: true })).start();
+      Animated.loop(Animated.timing(orbit3, { toValue: 1, duration: 22000, easing: Easing.linear, useNativeDriver: true })).start();
+    }
 
     // 11. Background blobs
     Animated.loop(Animated.sequence([
@@ -170,10 +211,12 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       Animated.timing(float2, { toValue: 1, duration: 6000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       Animated.timing(float2, { toValue: 0, duration: 6000, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
     ])).start();
-    Animated.loop(Animated.sequence([
-      Animated.timing(float3, { toValue: 1, duration: 7200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      Animated.timing(float3, { toValue: 0, duration: 7200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-    ])).start();
+    if (!lowMotion) {
+      Animated.loop(Animated.sequence([
+        Animated.timing(float3, { toValue: 1, duration: 7200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(float3, { toValue: 0, duration: 7200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ])).start();
+    }
 
     // 12. Glow pulse
     Animated.loop(Animated.sequence([
@@ -182,32 +225,36 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
     ])).start();
 
     // 13. Violet/cyan dot particles
-    particleAnims.forEach((anim, i) => {
-      const dur = PARTICLE_CFG[i].dur;
-      const startPhase = i / PARTICLE_CFG.length;
-      const runLoop = () => {
-        anim.setValue(0);
-        Animated.timing(anim, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true })
+    if (!lowMotion) {
+      particleAnims.forEach((anim, i) => {
+        const dur = PARTICLE_CFG[i].dur;
+        const startPhase = i / PARTICLE_CFG.length;
+        const runLoop = () => {
+          anim.setValue(0);
+          Animated.timing(anim, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true })
+            .start(({ finished }) => { if (finished) runLoop(); });
+        };
+        anim.setValue(startPhase);
+        Animated.timing(anim, { toValue: 1, duration: dur * (1 - startPhase), easing: Easing.linear, useNativeDriver: true })
           .start(({ finished }) => { if (finished) runLoop(); });
-      };
-      anim.setValue(startPhase);
-      Animated.timing(anim, { toValue: 1, duration: dur * (1 - startPhase), easing: Easing.linear, useNativeDriver: true })
-        .start(({ finished }) => { if (finished) runLoop(); });
-    });
+      });
+    }
 
     // 14. $+ symbol particles — start phase offset by 0.5 so they never sync with dots
-    dollarAnims.forEach((anim, i) => {
-      const dur = DOLLAR_CFG[i].dur;
-      const startPhase = (i / DOLLAR_CFG.length + 0.5) % 1;
-      const runLoop = () => {
-        anim.setValue(0);
-        Animated.timing(anim, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true })
+    if (!lowMotion) {
+      dollarAnims.forEach((anim, i) => {
+        const dur = DOLLAR_CFG[i].dur;
+        const startPhase = (i / DOLLAR_CFG.length + 0.5) % 1;
+        const runLoop = () => {
+          anim.setValue(0);
+          Animated.timing(anim, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true })
+            .start(({ finished }) => { if (finished) runLoop(); });
+        };
+        anim.setValue(startPhase);
+        Animated.timing(anim, { toValue: 1, duration: dur * (1 - startPhase), easing: Easing.linear, useNativeDriver: true })
           .start(({ finished }) => { if (finished) runLoop(); });
-      };
-      anim.setValue(startPhase);
-      Animated.timing(anim, { toValue: 1, duration: dur * (1 - startPhase), easing: Easing.linear, useNativeDriver: true })
-        .start(({ finished }) => { if (finished) runLoop(); });
-    });
+      });
+    }
 
     // 14. Fade out
     const t = setTimeout(() => {
@@ -229,6 +276,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
   const blob2Y    = float2.interpolate({ inputRange: [0, 1], outputRange: [0, 22] });
   const blob3Y    = float3.interpolate({ inputRange: [0, 1], outputRange: [0, -18] });
   const glowOpacity = glowPulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.40] });
+  const gemRotate = gemSwing.interpolate({ inputRange: [0, 1], outputRange: ['-8deg', '8deg'] });
 
   return (
     <Animated.View
@@ -307,7 +355,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
         />
 
         {/* Dot grid (web only) */}
-        {Platform.OS === 'web' && (
+        {!lowMotion && Platform.OS === 'web' && (
           <View
             pointerEvents="none"
             style={[
@@ -323,6 +371,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       </View>
 
       {/* ── Diagonal accent lines ─────────────────────────────────────────────── */}
+      {!lowMotion && (
       <View style={[StyleSheet.absoluteFillObject, { opacity: 0.04 }]} pointerEvents="none">
         {[...Array(7)].map((_, i) => (
           <View
@@ -339,9 +388,10 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
           />
         ))}
       </View>
+      )}
 
       {/* ── Violet/cyan dot particles ─────────────────────────────────────────── */}
-      {PARTICLE_CFG.map((p, i) => {
+      {!lowMotion && PARTICLE_CFG.map((p, i) => {
         const floatY = particleAnims[i].interpolate({ inputRange: [0, 1], outputRange: [0, -(H * 0.22)] });
         const fadeOut = particleAnims[i].interpolate({ inputRange: [0, 0.08, 0.78, 1], outputRange: [0, 1, 1, 0] });
         return (
@@ -364,7 +414,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       })}
 
       {/* ── $+ fintech particles — savings symbols floating up ───────────────── */}
-      {DOLLAR_CFG.map((cfg, i) => {
+      {!lowMotion && DOLLAR_CFG.map((cfg, i) => {
         const floatY = dollarAnims[i].interpolate({ inputRange: [0, 1], outputRange: [0, -(H * 0.24)] });
         const fadeOut = dollarAnims[i].interpolate({ inputRange: [0, 0.08, 0.78, 1], outputRange: [0, 1, 1, 0] });
         const plusSize = Math.round(cfg.fontSize * 0.62);
@@ -437,6 +487,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
 
         {/* Glow aura */}
+        {!lowMotion && (
         <Animated.View
           pointerEvents="none"
           style={{ position: 'absolute', width: 220, height: 220, borderRadius: 110, backgroundColor: 'transparent', opacity: glowOpacity }}>
@@ -446,8 +497,10 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
             style={{ flex: 1, borderRadius: 110 }}
           />
         </Animated.View>
+        )}
 
         {/* Outer orbit ring 1 — violet */}
+        {!lowMotion && (
         <Animated.View
           pointerEvents="none"
           style={{
@@ -465,8 +518,10 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
             transform: [{ translateX: -3 }],
           }} />
         </Animated.View>
+        )}
 
         {/* Outer orbit ring 2 — cyan, dashed, opposite */}
+        {!lowMotion && (
         <Animated.View
           pointerEvents="none"
           style={{
@@ -485,8 +540,10 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
             transform: [{ translateX: -2.5 }],
           }} />
         </Animated.View>
+        )}
 
         {/* Outer orbit ring 3 — green (money ring), slow, wider */}
+        {!lowMotion && (
         <Animated.View
           pointerEvents="none"
           style={{
@@ -506,20 +563,23 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
             transform: [{ translateX: -5 }],
           }}>$</Text>
         </Animated.View>
+        )}
 
-        {/* Pulsing red ring */}
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            width: 160, height: 160, borderRadius: 80,
-            borderWidth: 1.5,
-            borderColor: PERU_RED,
-            opacity: ring2Opacity,
-          }}
-        />
+        {/* Pulsing red ring (solo modo completo) */}
+        {!lowMotion ? (
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              width: 160, height: 160, borderRadius: 80,
+              borderWidth: 1.5,
+              borderColor: PERU_RED,
+              opacity: ring2Opacity,
+            }}
+          />
+        ) : null}
 
-        {/* Main orb glow */}
+        {/* Main orb glow — siempre visible */}
         <Animated.View
           pointerEvents="none"
           style={{
@@ -550,7 +610,15 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
         />
 
         {/* Diamond gem */}
-        <Animated.Text style={{ fontSize: 62, opacity: gemOpacity, transform: [{ scale: gemScale }], marginBottom: 4 }}>
+        <Animated.Text
+          style={{
+            fontSize: 62,
+            opacity: gemOpacity,
+            marginBottom: 4,
+            transform: reduceMotionEnabled
+              ? [{ scale: gemScale }]
+              : [{ scale: gemScale }, { rotate: gemRotate }],
+          }}>
           💎
         </Animated.Text>
 
@@ -628,6 +696,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
                 style={{ width: PROGRESS_W, height: 4 }}
               />
             </Animated.View>
+            {!lowMotion && (
             <Animated.View
               pointerEvents="none"
               style={{ position: 'absolute', top: 0, width: 80, height: 4, transform: [{ translateX: shimmerX }] }}>
@@ -637,6 +706,7 @@ export function AppPreloader({ theme: T, onFinish }: Props) {
                 style={{ flex: 1 }}
               />
             </Animated.View>
+            )}
           </View>
 
           {/* Color dots legend */}

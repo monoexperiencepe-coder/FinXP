@@ -18,17 +18,26 @@ import {
 
 import { darkTheme as T } from '@/constants/theme';
 import {
+  clearOnboardingDraftLocal,
   clearOnboardingResumeStepLocal,
   ONBOARDING_LAST_STEP_INDEX,
   readOnboardingDraftLocal,
   writeOnboardingCompletedLocal,
   writeOnboardingResumeStepLocal,
 } from '@/lib/preferences';
+import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 
 type OnboardingDraft = {
   nombreUsuario?: string | null;
+  monedaPrincipal?: 'PEN' | 'USD' | null;
+  tipoDeCambio?: number | null;
+  metodosDePago?: string[] | null;
+  bancosDisponibles?: string[] | null;
+  lifeSituation?: string | null;
+  salarioRango?: string | null;
   ingresoAprox?: number | null;
+  categoriasGasto?: Array<{ id?: string; nombre: string; emoji?: string; orden?: number }> | null;
 };
 
 const PARTICLE_CFG = [
@@ -121,6 +130,68 @@ export default function RegisterScreen() {
   const blob2TransY = blobFloat2.interpolate({ inputRange: [0, 1], outputRange: [0, 22] });
 
   // ── form logic ─────────────────────────────────────────────────────────────
+  const persistOnboardingDraft = async (userId: string, draft: OnboardingDraft) => {
+    const profileBasePatch: Record<string, unknown> = {
+      moneda_principal: draft.monedaPrincipal ?? 'PEN',
+      tipo_de_cambio:
+        Number.isFinite(Number(draft.tipoDeCambio)) && Number(draft.tipoDeCambio) > 0
+          ? Number(draft.tipoDeCambio)
+          : 3.75,
+      metodos_de_pago: Array.isArray(draft.metodosDePago) ? draft.metodosDePago : null,
+      bancos_disponibles: Array.isArray(draft.bancosDisponibles) ? draft.bancosDisponibles : null,
+      onboarding_done: true,
+    };
+
+    const { error: profileBaseErr } = await supabase
+      .from('user_profiles')
+      .update(profileBasePatch)
+      .eq('id', userId);
+    if (profileBaseErr) throw profileBaseErr;
+
+    // Campos opcionales del onboarding (si la base no los tiene, no rompemos el alta).
+    const optionalPatch: Record<string, unknown> = {};
+    if (draft.lifeSituation) optionalPatch.situacion = draft.lifeSituation;
+    if (draft.salarioRango) optionalPatch.salario_rango = draft.salarioRango;
+    if (Number.isFinite(Number(draft.ingresoAprox)) && Number(draft.ingresoAprox) > 0) {
+      optionalPatch.salario_aproximado = Number(draft.ingresoAprox);
+      optionalPatch.sueldo_mensual_fijo = Number(draft.ingresoAprox);
+    }
+    if (Object.keys(optionalPatch).length > 0) {
+      await supabase.from('user_profiles').update(optionalPatch).eq('id', userId);
+    }
+
+    const gastoCats = Array.isArray(draft.categoriasGasto)
+      ? draft.categoriasGasto.filter((c) => c?.nombre?.trim())
+      : [];
+    if (gastoCats.length > 0) {
+      const { error: deleteErr } = await supabase
+        .from('user_categories')
+        .delete()
+        .eq('user_id', userId)
+        .eq('tipo', 'gasto');
+      if (deleteErr) throw deleteErr;
+
+      const payload = gastoCats.map((c, idx) => ({
+        user_id: userId,
+        tipo: 'gasto',
+        nombre: c.nombre.trim(),
+        emoji: c.emoji || '📦',
+        orden: Number.isFinite(Number(c.orden)) ? Number(c.orden) : idx + 1,
+      }));
+      const { error: insertErr } = await supabase.from('user_categories').insert(payload);
+      if (insertErr) throw insertErr;
+    }
+  };
+
+  const resolveUserIdAfterSignup = async (): Promise<string | null> => {
+    const authUserId = useAuthStore.getState().user?.id;
+    if (authUserId) return authUserId;
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData.user?.id) return userData.user.id;
+    const { data: sessionData } = await supabase.auth.getSession();
+    return sessionData.session?.user?.id ?? null;
+  };
+
   const handleRegister = async () => {
     setError('');
     if (!nombre.trim())         { setError('Ingresa tu nombre'); return; }
@@ -130,9 +201,17 @@ export default function RegisterScreen() {
 
     try {
       await signUp(email.trim(), password, nombre.trim(), sueldoMensualFijo);
+      const draft = await readOnboardingDraftLocal<OnboardingDraft>();
+      if (draft) {
+        const userId = await resolveUserIdAfterSignup();
+        if (userId) {
+          await persistOnboardingDraft(userId, draft);
+        }
+        await clearOnboardingDraftLocal();
+      }
       setError('');
       await clearOnboardingResumeStepLocal();
-      router.replace('/(auth)/login' as any);
+      router.replace('/(tabs)' as any);
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
       if (e.message?.includes('already registered')) {

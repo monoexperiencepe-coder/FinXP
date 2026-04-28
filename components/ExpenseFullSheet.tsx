@@ -28,6 +28,7 @@ import AnimatedRN, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { EXPENSE_CATEGORIES } from '@/constants/expenseCategories';
 import { onPrimaryGradient } from '@/constants/theme';
 import { Font } from '@/constants/typography';
 import { GradientView } from '@/components/ui/GradientView';
@@ -77,8 +78,9 @@ function formatFechaCorta(key: string) {
   return fechaKeyToDate(key).toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-type Props = { open: boolean; onDismiss: () => void };
+type Props = { open: boolean; onDismiss: () => void; onSavedSuccess?: () => void };
 type FieldError = 'amount' | 'category' | null;
+type PickerCategory = { id: string; emoji: string; label: string; value: string };
 
 function useShake() {
   const x = useSharedValue(0);
@@ -96,13 +98,30 @@ function useShake() {
 }
 
 /* ─────────────────────────────────────── */
-export function ExpenseFullSheet({ open, onDismiss }: Props) {
+export function ExpenseFullSheet({ open, onDismiss, onSavedSuccess }: Props) {
   const { T, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const addExpenseToSupabase = useFinanceStore((s) => s.addExpenseToSupabase);
   const categories = useFinanceStore((s) => s.categories);
   const profile = useFinanceStore((s) => s.profile);
+  const availableCategories = useMemo<PickerCategory[]>(() => {
+    if (categories.length > 0) {
+      return categories.map((cat) => ({
+        id: cat.id,
+        emoji: cat.emoji,
+        label: cat.nombre,
+        value: cat.nombre,
+      }));
+    }
+    // Fallback para evitar bloqueo cuando aún no cargan categorías del usuario.
+    return EXPENSE_CATEGORIES.map((cat) => ({
+      id: `fallback-${cat.id}`,
+      emoji: cat.emoji,
+      label: cat.name,
+      value: cat.id,
+    }));
+  }, [categories]);
 
   const [isVisible, setIsVisible] = useState(false);
 
@@ -133,7 +152,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [amount, setAmount] = useState('');
   const [amountFocused, setAmountFocused] = useState(false);
   const [moneda, setMoneda] = useState<MonedaCode>(profile.monedaPrincipal);
-  const [categoria, setCategoria] = useState<string>(categories[0]?.nombre ?? '');
+  const [categoria, setCategoria] = useState<string>(availableCategories[0]?.value ?? '');
   const [mood, setMood] = useState<EstadoDeAnimo | null>(null);
   const [esEsencial, setEsEsencial] = useState(false);
 
@@ -151,6 +170,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
   const [banco, setBanco] = useState(() => bancosLista[0] ?? 'BCP');
   const [bancoMenu, setBancoMenu] = useState(false);
   const [medioMenu, setMedioMenu] = useState(false);
+  const [showAllCategoryChips, setShowAllCategoryChips] = useState(false);
   const [nota, setNota] = useState('');
   const [fieldError, setFieldError] = useState<FieldError>(null);
   const errorClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -181,17 +201,37 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
     prevOpen.current = open;
     if (!became) return;
     setMoneda(profile.monedaPrincipal);
-    setCategoria(categories[0]?.nombre ?? '');
+    setCategoria(availableCategories[0]?.value ?? '');
     setMood(null);
     setEsEsencial(false);
     setMedio(medios[0]?.nombre ?? 'Efectivo');
     setBanco(bancosLista[0] ?? 'BCP');
+    setShowAllCategoryChips(false);
     setNota('');
     setAmount('');
     setFecha(toDateKeyLocal(new Date()));
     setFieldError(null);
     requestAnimationFrame(() => openSheet());
-  }, [open, openSheet, profile.monedaPrincipal, categories, medios, bancosLista]);
+  }, [open, openSheet, profile.monedaPrincipal, availableCategories, medios, bancosLista]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!categoria && availableCategories.length > 0) {
+      setCategoria(availableCategories[0].value);
+    }
+  }, [open, categoria, availableCategories]);
+
+  const categoryCols = sheetWidth >= 390 ? 4 : 3;
+  const categoryGap = 6;
+  const categoryChipWidth = Math.floor((sheetWidth - 28 - categoryGap * (categoryCols - 1)) / categoryCols);
+  const compactLimit = categoryCols * 2;
+  const visibleCategories = useMemo(() => {
+    if (showAllCategoryChips || availableCategories.length <= compactLimit) return availableCategories;
+    const selected = availableCategories.find((c) => c.value === categoria);
+    const first = availableCategories.slice(0, compactLimit);
+    if (!selected || first.some((c) => c.value === selected.value)) return first;
+    return [...first.slice(0, Math.max(0, compactLimit - 1)), selected];
+  }, [showAllCategoryChips, availableCategories, compactLimit, categoria]);
 
   const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
@@ -269,6 +309,7 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
       return;
     }
     await playXp();
+    onSavedSuccess?.();
     closeSheet();
   };
 
@@ -507,46 +548,57 @@ export function ExpenseFullSheet({ open, onDismiss }: Props) {
               label="¿EN QUÉ GASTASTE?"
               color={fieldError === 'category' ? T.error : T.textMuted}
             />
+            {availableCategories.length > compactLimit ? (
+              <Pressable
+                onPress={() => setShowAllCategoryChips((v) => !v)}
+                style={{ alignSelf: 'flex-end', marginTop: -2, marginBottom: 6 }}>
+                <Text style={{ fontFamily: Font.manrope600, fontSize: 11, color: T.primary }}>
+                  {showAllCategoryChips
+                    ? 'Ver menos'
+                    : `Ver todas (${availableCategories.length})`}
+                </Text>
+              </Pressable>
+            ) : null}
             <AnimatedRN.View style={categoryShake.style}>
               <View
                 style={{
                   flexDirection: 'row',
                   flexWrap: 'wrap',
                   alignContent: 'flex-start',
-                  gap: 6,
+                  gap: categoryGap,
                 }}>
-                {categories.map((cat) => {
-                  const active = categoria === cat.nombre;
+                {visibleCategories.map((cat) => {
+                  const active = categoria === cat.value;
                   return (
                     <Pressable
                       key={cat.id}
-                      onPress={() => setCategoria(cat.nombre)}
+                      onPress={() => setCategoria(cat.value)}
                       style={{
                         alignItems: 'center',
                         justifyContent: 'center',
-                        paddingHorizontal: 10,
-                        paddingVertical: 7,
-                        borderRadius: 14,
+                        width: categoryChipWidth,
+                        minHeight: 48,
+                        paddingHorizontal: 8,
+                        paddingVertical: 5,
+                        borderRadius: 12,
                         borderWidth: active ? 2 : 1,
                         borderColor: active ? T.primary : T.glassBorder,
                         backgroundColor: active ? T.primaryBg : T.card,
-                        minWidth: 68,
-                        maxWidth: 108,
                         alignSelf: 'flex-start',
                       }}>
-                      <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
+                      <Text style={{ fontSize: 16 }}>{cat.emoji}</Text>
                       <Text
-                        numberOfLines={2}
+                        numberOfLines={1}
                         style={{
                           fontFamily: Font.manrope600,
-                          fontSize: 10,
-                          marginTop: 3,
+                          fontSize: 9,
+                          marginTop: 2,
                           color: active ? T.primary : T.textMuted,
                           textAlign: 'center',
-                          lineHeight: 13,
-                          maxWidth: 96,
+                          lineHeight: 11,
+                          width: '100%',
                         }}>
-                        {cat.nombre}
+                        {cat.label}
                       </Text>
                     </Pressable>
                   );

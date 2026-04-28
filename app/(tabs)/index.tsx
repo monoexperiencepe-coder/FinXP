@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -41,6 +42,7 @@ import { ThemePickerModal } from '@/components/ThemePickerModal';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
+import type { MonedaCode } from '@/types';
 
 function whatsappLinkCodeApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
@@ -145,6 +147,288 @@ function WebDonut({ usedPct, arcColor, trackColor }: { usedPct: number; arcColor
   );
 }
 
+type DailyTopCategory = { cat: string; total: number };
+
+function getCurrentStreak(expenses: Array<{ fecha: string }>): number {
+  if (!expenses.length) return 0;
+  const daySet = new Set<string>();
+  for (const e of expenses) {
+    daySet.add(toDateKey(new Date(e.fecha)));
+  }
+  let streak = 0;
+  const cursor = new Date();
+  while (true) {
+    const key = toDateKey(cursor);
+    if (!daySet.has(key)) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function getYesterdaySpent(expenses: Array<{ fecha: string; importe: number }>): number {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const yesterdayKey = toDateKey(d);
+  return expenses.reduce((sum, e) => {
+    const k = toDateKey(new Date(e.fecha));
+    return k === yesterdayKey ? sum + e.importe : sum;
+  }, 0);
+}
+
+function getWeekSpent(
+  expenses: Array<{ fecha: string; importe: number }>,
+  offset: 0 | 1 = 0,
+): number {
+  const now = new Date();
+  const day = now.getDay(); // 0 domingo, 1 lunes, ...
+  const diffToMonday = day === 0 ? 6 : day - 1;
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - diffToMonday - offset * 7);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+
+  return expenses.reduce((sum, e) => {
+    const d = new Date(e.fecha);
+    return d >= start && d < end ? sum + e.importe : sum;
+  }, 0);
+}
+
+function buildYesterdayComparison(params: {
+  todaySpent: number;
+  yesterdaySpent: number;
+  moneda: MonedaCode;
+}): string {
+  const formatComparisonDelta = (amount: number, currency: MonedaCode): string => {
+    const rounded = Math.round(amount * 100) / 100;
+    const isInt = Number.isInteger(rounded);
+    const num = isInt ? String(rounded) : rounded.toFixed(2);
+    if (currency === 'PEN') return `S/${num}`;
+    if (currency === 'USD') return `$${num}`;
+    return formatMoney(rounded, currency).replace(/\s+/g, '');
+  };
+
+  const { todaySpent, yesterdaySpent, moneda } = params;
+  if (todaySpent === 0) return 'Registra tu primer gasto para comparar con ayer';
+  if (yesterdaySpent <= 0 && todaySpent > 0) return 'Hoy ya registraste gastos 💸';
+  if (todaySpent < yesterdaySpent) {
+    return `Vas ${formatComparisonDelta(yesterdaySpent - todaySpent, moneda)} menos que ayer 💪`;
+  }
+  if (todaySpent > yesterdaySpent) {
+    return `Vas ${formatComparisonDelta(todaySpent - yesterdaySpent, moneda)} más que ayer 👀`;
+  }
+  return 'Vas igual que ayer ⚖️';
+}
+
+function buildWeeklyComparison(params: {
+  currentWeek: number;
+  previousWeek: number;
+  moneda: MonedaCode;
+}): string {
+  const formatComparisonDelta = (amount: number, currency: MonedaCode): string => {
+    const rounded = Math.round(amount * 100) / 100;
+    const isInt = Number.isInteger(rounded);
+    const num = isInt ? String(rounded) : rounded.toFixed(2);
+    if (currency === 'PEN') return `S/${num}`;
+    if (currency === 'USD') return `$${num}`;
+    return formatMoney(rounded, currency).replace(/\s+/g, '');
+  };
+
+  const { currentWeek, previousWeek, moneda } = params;
+  if (currentWeek === 0) return 'Registra gastos para ver tu semana';
+  if (previousWeek <= 0 && currentWeek > 0) return 'Ya empezaste la semana 💸';
+  if (currentWeek < previousWeek) {
+    return `Vas ${formatComparisonDelta(previousWeek - currentWeek, moneda)} menos que la semana pasada 💪`;
+  }
+  if (currentWeek > previousWeek) {
+    return `Vas ${formatComparisonDelta(currentWeek - previousWeek, moneda)} más que la semana pasada 👀`;
+  }
+  return 'Vas igual que la semana pasada ⚖️';
+}
+
+function buildFinancialIdentity(expenses: Array<{ fecha: string; categoria: string; importe: number }>): {
+  title: string;
+  emoji: string;
+  description: string;
+} {
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - 29);
+
+  const recent = expenses.filter((e) => {
+    const d = new Date(e.fecha);
+    return d >= start && d <= now;
+  });
+
+  if (recent.length === 0) {
+    return {
+      title: 'Explorador',
+      emoji: '🧭',
+      description: 'Empieza registrando gastos para descubrir tu patrón.',
+    };
+  }
+
+  let total = 0;
+  let comida = 0;
+  let transporte = 0;
+  for (const e of recent) {
+    total += e.importe;
+    const cat = (e.categoria || '').toLowerCase();
+    if (cat.includes('comida')) comida += e.importe;
+    if (cat.includes('transporte')) transporte += e.importe;
+  }
+
+  const comidaPct = total > 0 ? (comida / total) * 100 : 0;
+  const transportePct = total > 0 ? (transporte / total) * 100 : 0;
+
+  if (comidaPct > 40) {
+    return {
+      title: 'Food lover financiero',
+      emoji: '🍔',
+      description: 'Gran parte de tu dinero se está yendo en comida.',
+    };
+  }
+  if (transportePct > 30) {
+    return {
+      title: 'Movilidad activa',
+      emoji: '🚌',
+      description: 'Tu transporte pesa bastante en tus gastos.',
+    };
+  }
+  return {
+    title: 'Balanceado',
+    emoji: '⚖️',
+    description: 'Tus gastos están bastante distribuidos.',
+  };
+}
+
+function buildMonthlyProjection(
+  expenses: Array<{ fecha: string; importe: number }>,
+  moneda: MonedaCode,
+): {
+  show: boolean;
+  learning: boolean;
+  projection: number;
+  message: string;
+  hint: string;
+} {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+
+  const monthExpenses = expenses.filter((e) => {
+    const d = new Date(e.fecha);
+    return d.getFullYear() === y && d.getMonth() === m;
+  });
+
+  if (monthExpenses.length === 0) {
+    return {
+      show: false,
+      learning: false,
+      projection: 0,
+      message: '',
+      hint: '',
+    };
+  }
+
+  const monthSpent = monthExpenses.reduce((s, e) => s + e.importe, 0);
+  const daysWithExpenses = new Set(monthExpenses.map((e) => toDateKey(new Date(e.fecha)))).size;
+  const projection = (monthSpent / Math.max(1, dayOfMonth)) * daysInMonth;
+
+  if (daysWithExpenses < 3) {
+    return {
+      show: true,
+      learning: true,
+      projection,
+      message: 'Aún estamos aprendiendo tu ritmo 👀',
+      hint: '',
+    };
+  }
+
+  const projectionText = formatMoney(projection, moneda).replace(/\s+/g, '');
+  return {
+    show: true,
+    learning: false,
+    projection,
+    message: `Si sigues así, cerrarías el mes en ${projectionText} 💸`,
+    hint:
+      projection > monthSpent * 1.3
+        ? 'Tu ritmo podría subir este mes'
+        : 'Vas construyendo claridad sobre tu dinero',
+  };
+}
+
+function calculateDailyControlScore(params: {
+  todaySpent: number;
+  todayTopCats: DailyTopCategory[];
+  todayExpenseCount: number;
+  estimatedDailyBudget: number | null;
+}): {
+  score: number;
+  label: string;
+  emoji: string;
+  description: string;
+} {
+  const { todaySpent, todayTopCats, todayExpenseCount, estimatedDailyBudget } = params;
+  let score = 10;
+
+  // Penaliza si gasta por encima del presupuesto diario estimado.
+  if (estimatedDailyBudget && estimatedDailyBudget > 0 && todaySpent > estimatedDailyBudget) {
+    const overspendRatio = todaySpent / estimatedDailyBudget;
+    score -= Math.min(4.2, (overspendRatio - 1) * 4.5);
+  }
+
+  // Penaliza concentración excesiva en una sola categoría.
+  if (todaySpent > 0 && todayTopCats.length > 0) {
+    const dominantPct = (todayTopCats[0].total / todaySpent) * 100;
+    if (dominantPct > 60) {
+      score -= Math.min(2.3, ((dominantPct - 60) / 40) * 2.3);
+    }
+  }
+
+  // Penaliza demasiados gastos pequeños en el día.
+  if (todayExpenseCount >= 7) {
+    if (estimatedDailyBudget && estimatedDailyBudget > 0 && todaySpent <= estimatedDailyBudget * 0.9) {
+      score -= Math.min(1.5, (todayExpenseCount - 6) * 0.22);
+    } else {
+      score -= Math.min(2.0, (todayExpenseCount - 6) * 0.28);
+    }
+  }
+
+  // En días sin movimiento, muestra control neutro-alto para no castigar.
+  if (todayExpenseCount === 0 && todaySpent === 0) {
+    score = Math.max(score, 8.5);
+  }
+
+  const clamped = Math.max(1, Math.min(10, Math.round(score)));
+  if (clamped >= 8) {
+    return {
+      score: clamped,
+      label: 'Buen control',
+      emoji: '💪',
+      description: 'Tus decisiones de hoy se ven ordenadas y sostenibles.',
+    };
+  }
+  if (clamped >= 5) {
+    return {
+      score: clamped,
+      label: 'Vas bien',
+      emoji: '🙂',
+      description: 'Vas en buen camino; con un ajuste pequeño cierras mejor el día.',
+    };
+  }
+  return {
+    score: clamped,
+    label: 'Día caro',
+    emoji: '👀',
+    description: 'Hoy hubo presión en tus gastos; mañana toca recuperar control.',
+  };
+}
+
 /* ── Floating toast ── */
 function FloatingToast({ message, emoji, onDismiss, T }: {
   message: string;
@@ -203,6 +487,93 @@ function FloatingToast({ message, emoji, onDismiss, T }: {
   );
 }
 
+function ExpenseSavedFeedbackModal({
+  visible,
+  onContinue,
+  T,
+  todaySpentText,
+  dominantCategoryLabel,
+  dominantPct,
+  dynamicMessage,
+}: {
+  visible: boolean;
+  onContinue: () => void;
+  T: ReturnType<typeof useTheme>['T'];
+  todaySpentText: string;
+  dominantCategoryLabel: string;
+  dominantPct: number;
+  dynamicMessage: string;
+}) {
+  const fade = useRef(new Animated.Value(0)).current;
+  const slide = useRef(new Animated.Value(16)).current;
+
+  useEffect(() => {
+    if (!visible) return;
+    fade.setValue(0);
+    slide.setValue(16);
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: 220, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(slide, { toValue: 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
+  }, [visible, fade, slide]);
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onContinue}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18 }}>
+        <Pressable onPress={onContinue} style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(7,10,22,0.52)' }} />
+        <Animated.View
+          style={{
+            width: '100%',
+            maxWidth: 380,
+            borderRadius: 20,
+            backgroundColor: T.surface,
+            borderWidth: 1,
+            borderColor: T.glassBorder,
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 14,
+            opacity: fade,
+            transform: [{ translateY: slide }],
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.28,
+            shadowRadius: 18,
+            elevation: 12,
+          }}>
+          <Text style={{ fontFamily: Font.jakarta700, color: T.textPrimary, fontSize: 20 }}>
+            🔥 Gasto registrado
+          </Text>
+
+          <Text style={{ fontFamily: Font.manrope600, color: T.textSecondary, fontSize: 15, marginTop: 12 }}>
+            Hoy llevas {todaySpentText} 💸
+          </Text>
+
+          <Text style={{ fontFamily: Font.manrope500, color: T.textSecondary, fontSize: 13, marginTop: 10, lineHeight: 18 }}>
+            👀 El {dominantPct}% de tu gasto es en {dominantCategoryLabel}
+          </Text>
+
+          <Text style={{ fontFamily: Font.manrope600, color: T.primary, fontSize: 13, marginTop: 10, lineHeight: 18 }}>
+            💡 {dynamicMessage}
+          </Text>
+
+          <Pressable
+            onPress={onContinue}
+            style={{
+              marginTop: 14,
+              borderRadius: 14,
+              paddingVertical: 12,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: T.primary,
+            }}>
+            <Text style={{ fontFamily: Font.jakarta700, color: '#fff', fontSize: 14 }}>Continuar</Text>
+          </Pressable>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
 /* ── Metric pill ── */
 function MetricPill({ label, value, color, T }: {
   label: string;
@@ -240,7 +611,6 @@ export default function HomeScreen() {
   const budgets     = useFinanceStore((s) => s.budgets);
   const profile     = useFinanceStore((s) => s.profile);
   const missions    = useFinanceStore((s) => s.missions);
-  const getWeekSpent = useFinanceStore((s) => s.getWeekSpent);
   const loadFromSupabase = useFinanceStore((s) => s.loadFromSupabase);
   const session = useAuthStore((s) => s.session);
   const userId = useAuthStore((s) => s.user?.id ?? null);
@@ -249,7 +619,11 @@ export default function HomeScreen() {
   const [expenseSheetOpen,    setExpenseSheetOpen]    = useState(false);
   const [incomeSheetOpen,     setIncomeSheetOpen]     = useState(false);
   const [firstWalletModalOpen, setFirstWalletModalOpen] = useState(false);
+  const [expenseFeedbackVisible, setExpenseFeedbackVisible] = useState(false);
+  const [pendingExpenseFeedback, setPendingExpenseFeedback] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
+  const streakPulse = useRef(new Animated.Value(0)).current;
+  const prevComputedStreakRef = useRef(0);
   const [jarvisSkipped, setJarvisSkipped] = useState<JarvisMissionStepId[]>([]);
   const [jarvisLoaded, setJarvisLoaded] = useState(false);
   const [asistenteWhatsappLoading, setAsistenteWhatsappLoading] = useState(false);
@@ -386,6 +760,18 @@ export default function HomeScreen() {
     setFirstWalletModalOpen(false);
     setExpenseSheetOpen(true);
   }, []);
+  const handleExpenseSavedSuccess = useCallback(() => {
+    setPendingExpenseFeedback(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingExpenseFeedback || expenseSheetOpen) return;
+    const t = setTimeout(() => {
+      setExpenseFeedbackVisible(true);
+      setPendingExpenseFeedback(false);
+    }, 140);
+    return () => clearTimeout(t);
+  }, [pendingExpenseFeedback, expenseSheetOpen]);
 
   const handleAsistenteWhatsapp = useCallback(async () => {
     if (asistenteWhatsappLock.current) return;
@@ -499,12 +885,57 @@ export default function HomeScreen() {
     () => expenses.filter((e) => toDateKey(new Date(e.fecha)) === todayKey).reduce((s, e) => s + e.importe, 0),
     [expenses, todayKey],
   );
-  const weekSpent = useMemo(() => getWeekSpent(), [getWeekSpent, expenses]);
+  const todayExpenseCount = useMemo(
+    () => expenses.filter((e) => toDateKey(new Date(e.fecha)) === todayKey).length,
+    [expenses, todayKey],
+  );
+  const weekSpent = useMemo(() => getWeekSpent(expenses, 0), [expenses]);
+  const previousWeekSpent = useMemo(() => getWeekSpent(expenses, 1), [expenses]);
+  const yesterdaySpent = useMemo(() => getYesterdaySpent(expenses), [expenses]);
+  const currentStreak = useMemo(() => getCurrentStreak(expenses), [expenses]);
   const currentDayOfMonth = new Date().getDate();
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
   const daysRemaining = Math.max(1, daysInMonth - currentDayOfMonth + 1);
   const restanteRecomendado = Math.max(0, presupuestoRecomendadoMes - gastadoMes);
   const topeDiarioRecomendado = presupuestoRecomendadoMes > 0 ? restanteRecomendado / daysRemaining : 0;
+  const quickSummaryRows = useMemo(
+    () => [
+      {
+        label: 'HOY',
+        value: formatMoney(todaySpent, profile.monedaPrincipal),
+        accent: '#FF5E7D',
+        dim: isDark ? 'rgba(255,94,125,0.15)' : 'rgba(255,94,125,0.08)',
+        borderA: isDark ? '33' : '28',
+      },
+      {
+        label: 'SEMANA',
+        value: formatMoney(weekSpent, profile.monedaPrincipal),
+        accent: '#FFB84D',
+        dim: isDark ? 'rgba(255,184,77,0.15)' : 'rgba(255,184,77,0.1)',
+        borderA: isDark ? '33' : '28',
+      },
+      {
+        label: 'MES',
+        value: formatMoney(gastadoMes, profile.monedaPrincipal),
+        subValue: presupuestoRecomendadoMes > 0
+          ? `Te quedan ${formatMoney(restanteRecomendado, profile.monedaPrincipal)} · ${formatMoney(topeDiarioRecomendado, profile.monedaPrincipal)}/día`
+          : undefined,
+        accent: '#7C3AED',
+        dim: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
+        borderA: isDark ? '33' : '28',
+      },
+    ],
+    [
+      todaySpent,
+      weekSpent,
+      gastadoMes,
+      profile.monedaPrincipal,
+      presupuestoRecomendadoMes,
+      restanteRecomendado,
+      topeDiarioRecomendado,
+      isDark,
+    ],
+  );
   const todayHeaderDate = `${String(currentDayOfMonth).padStart(2, '0')} ${new Date()
     .toLocaleDateString('es-PE', { month: 'long' })
     .replace('.', '')
@@ -522,6 +953,99 @@ export default function HomeScreen() {
       .slice(0, 4)
       .map(([cat, total]) => ({ cat, total }));
   }, [expenses, todayKey]);
+  const estimatedDailyBudget = useMemo(() => {
+    if (presupuestoRecomendadoMes <= 0 || daysInMonth <= 0) return null;
+    return presupuestoRecomendadoMes / daysInMonth;
+  }, [presupuestoRecomendadoMes, daysInMonth]);
+  const dominantTodayCat = todayTopCats[0] ?? null;
+  const dominantTodayPct = useMemo(
+    () => (todaySpent > 0 && dominantTodayCat ? Math.round((dominantTodayCat.total / todaySpent) * 100) : 0),
+    [todaySpent, dominantTodayCat],
+  );
+  const expenseFeedbackMessage = useMemo(() => {
+    const catName = dominantTodayCat?.cat ?? 'esta categoría';
+    if (dominantTodayPct > 60) return `Estás concentrando mucho gasto en ${catName}`;
+    if (estimatedDailyBudget && todaySpent > estimatedDailyBudget) return 'Hoy ya vas alto en gasto';
+    return 'Buen control por ahora 💪';
+  }, [dominantTodayPct, dominantTodayCat, estimatedDailyBudget, todaySpent]);
+
+  useEffect(() => {
+    if (currentStreak > prevComputedStreakRef.current) {
+      streakPulse.setValue(0);
+      Animated.sequence([
+        Animated.timing(streakPulse, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(streakPulse, { toValue: 0, duration: 280, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]).start();
+    }
+    prevComputedStreakRef.current = currentStreak;
+  }, [currentStreak, streakPulse]);
+
+  const streakScale = streakPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const streakGlow = streakPulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.34] });
+  const streakText = useMemo(() => {
+    if (currentStreak <= 0) return 'Empieza tu racha hoy 🔥';
+    if (currentStreak >= 7) return `🔥 ${currentStreak} días — increíble`;
+    return `🔥 ${currentStreak} días seguidos`;
+  }, [currentStreak]);
+  const financialIdentity = useMemo(() => {
+    if (currentStreak >= 7) {
+      return {
+        title: 'Controlando',
+        emoji: '💪',
+        description: 'Estás construyendo un hábito financiero fuerte.',
+      };
+    }
+    return buildFinancialIdentity(expenses);
+  }, [expenses, currentStreak]);
+  const monthlyProjection = useMemo(
+    () => buildMonthlyProjection(expenses, profile.monedaPrincipal),
+    [expenses, profile.monedaPrincipal],
+  );
+  const yesterdayComparisonText = useMemo(
+    () =>
+      buildYesterdayComparison({
+        todaySpent,
+        yesterdaySpent,
+        moneda: profile.monedaPrincipal,
+      }),
+    [todaySpent, yesterdaySpent, profile.monedaPrincipal],
+  );
+  const weeklyComparisonText = useMemo(
+    () =>
+      buildWeeklyComparison({
+        currentWeek: weekSpent,
+        previousWeek: previousWeekSpent,
+        moneda: profile.monedaPrincipal,
+      }),
+    [weekSpent, previousWeekSpent, profile.monedaPrincipal],
+  );
+  const dailyControl = useMemo(
+    () =>
+      calculateDailyControlScore({
+        todaySpent,
+        todayTopCats,
+        todayExpenseCount,
+        estimatedDailyBudget,
+      }),
+    [todaySpent, todayTopCats, todayExpenseCount, estimatedDailyBudget],
+  );
+  const hasTodaySpendData = todaySpent > 0;
+  const donutCenter = useMemo(
+    () =>
+      hasTodaySpendData
+        ? {
+            title: 'CONTROL',
+            value: `${dailyControl.score}/10`,
+            subtitle: `${dailyControl.label} ${dailyControl.emoji}`,
+          }
+        : {
+            title: 'HOY',
+            value: 'Sin datos',
+            subtitle: 'Registra tu primer gasto',
+          },
+    [hasTodaySpendData, dailyControl.score, dailyControl.label, dailyControl.emoji],
+  );
+  const dailyControlPct = hasTodaySpendData ? dailyControl.score * 10 : 18;
 
   /* Top 3 categorías del mes */
   const topCats = useMemo(() => {
@@ -679,7 +1203,13 @@ export default function HomeScreen() {
 
   const premiumGrad = isDark ? (['#1A0B3B', '#0D1040', '#0A1628'] as const) : (['#FFFFFF', '#F6F1FF', '#EDE6FF'] as const);
   const donutTrackColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(26,16,53,0.1)';
-  const arcColorDonut = pctUsado >= 90 ? '#FF5E7D' : pctUsado >= 70 ? '#FFB84D' : '#7C3AED';
+  const arcColorDonut = !hasTodaySpendData
+    ? (isDark ? 'rgba(255,255,255,0.30)' : 'rgba(124,58,237,0.35)')
+    : dailyControl.score <= 4
+      ? '#FF5E7D'
+      : dailyControl.score <= 7
+        ? '#FFB84D'
+        : '#7C3AED';
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={['top', 'left', 'right']}>
@@ -805,80 +1335,42 @@ export default function HomeScreen() {
             />
 
             <View style={{ padding: 16 }}>
-              {/* Fila superior: donut + importe central */}
+
+              {/* ── 1. CONTROL DEL DÍA ─────────────────────────────────── */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
                 {/* Donut */}
                 <View style={{ width: 132, height: 132, alignItems: 'center', justifyContent: 'center' }}>
                   <View style={{ position: 'absolute' }}>
                     {Platform.OS === 'web'
-                      ? <WebDonut usedPct={pctUsado} arcColor={arcColorDonut} trackColor={donutTrackColor} />
-                      : <NativeDonut usedPct={pctUsado} arcColor={arcColorDonut} trackColor={donutTrackColor} />}
+                      ? <WebDonut usedPct={dailyControlPct} arcColor={arcColorDonut} trackColor={donutTrackColor} />
+                      : <NativeDonut usedPct={dailyControlPct} arcColor={arcColorDonut} trackColor={donutTrackColor} />}
                   </View>
-                  <View style={{ alignItems: 'center', paddingHorizontal: 6 }}>
-                    {presupuestoRecomendadoMes > 0 ? (
-                      /* ── Con sueldo/base: usa objetivo 70/30 ── */
-                      <>
-                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 20, lineHeight: 22, textAlign: 'center', letterSpacing: -0.5 }}>
-                          {Math.round(pctUsado)}%
-                        </Text>
-                        <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 8, marginTop: 1, letterSpacing: 0.5 }}>
-                          USO RECOMENDADO (70%)
-                        </Text>
-                        <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 8, marginTop: 3, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>
-                          {formatMoney(gastadoMes, profile.monedaPrincipal)} / {formatMoney(presupuestoRecomendadoMes, profile.monedaPrincipal)}
-                        </Text>
-                      </>
-                    ) : (
-                      /* ── Sin base aún: fallback simple ── */
-                      <>
-                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 15, lineHeight: 18, textAlign: 'center', letterSpacing: -0.3 }} numberOfLines={1} adjustsFontSizeToFit>
-                          {formatMoney(gastadoMes > 0 ? gastadoMes / currentDayOfMonth : 0, profile.monedaPrincipal)}
-                        </Text>
-                        <Text style={{ fontFamily: Font.manrope400, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 8, marginTop: 1, letterSpacing: 0.5 }}>
-                          PROMEDIO/DÍA
-                        </Text>
-                        <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 8, marginTop: 3, textAlign: 'center' }}>
-                          {new Date().getDate()} días del mes
-                        </Text>
-                      </>
-                    )}
+                  <View style={{ alignItems: 'center', justifyContent: 'center', width: 104, paddingHorizontal: 6 }}>
+                    <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.62)' : T.textMuted, fontSize: 9, letterSpacing: 1.2 }}>
+                      {donutCenter.title}
+                    </Text>
+                    <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: hasTodaySpendData ? 24 : 20, lineHeight: hasTodaySpendData ? 26 : 24, textAlign: 'center', letterSpacing: -0.4, marginTop: 1 }}>
+                      {donutCenter.value}
+                    </Text>
+                    <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.52)' : T.textSecondary, fontSize: 10, marginTop: 3, textAlign: 'center', lineHeight: 12 }} numberOfLines={2}>
+                      {donutCenter.subtitle}
+                    </Text>
                   </View>
                 </View>
 
-                {/* Métricas verticales */}
-                <View style={{ flex: 1, gap: 6 }}>
-                  {[
-                    {
-                      label: 'HOY',
-                      value: formatMoney(todaySpent, profile.monedaPrincipal),
-                      accent: '#FF5E7D',
-                      dim: isDark ? 'rgba(255,94,125,0.15)' : 'rgba(255,94,125,0.08)',
-                      borderA: isDark ? '33' : '28',
-                    },
-                    {
-                      label: 'SEMANA',
-                      value: formatMoney(weekSpent, profile.monedaPrincipal),
-                      accent: '#FFB84D',
-                      dim: isDark ? 'rgba(255,184,77,0.15)' : 'rgba(255,184,77,0.1)',
-                      borderA: isDark ? '33' : '28',
-                    },
-                    {
-                      label: 'MES',
-                      value: formatMoney(gastadoMes, profile.monedaPrincipal),
-                      subValue: presupuestoRecomendadoMes > 0
-                        ? `Te quedan ${formatMoney(restanteRecomendado, profile.monedaPrincipal)} · ${formatMoney(topeDiarioRecomendado, profile.monedaPrincipal)}/día`
-                        : undefined,
-                      accent: '#7C3AED',
-                      dim: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
-                      borderA: isDark ? '33' : '28',
-                    },
-                  ].map((m) => (
+                {/* Resumen HOY / SEMANA / MES */}
+                <View style={{ flex: 1, gap: 5, justifyContent: 'center' }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 9, letterSpacing: 1.2, marginLeft: 2 }}>
+                    Así va tu día
+                  </Text>
+                  {quickSummaryRows.map((m) => (
                     <View
                       key={m.label}
                       style={{
                         flexDirection: 'row',
-                        alignItems: 'center',
+                        alignItems: 'flex-start',
                         justifyContent: 'space-between',
+                        minHeight: 32,
                         backgroundColor: m.dim,
                         borderRadius: 10,
                         paddingHorizontal: 10,
@@ -886,233 +1378,237 @@ export default function HomeScreen() {
                         borderWidth: 1,
                         borderColor: m.accent + m.borderA,
                       }}>
-                      <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.45)' : T.textMuted, fontSize: 10, letterSpacing: 1 }}>
-                        {m.label}
-                      </Text>
-                      <View style={{ alignItems: 'flex-end' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingTop: 2 }}>
+                        <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: m.accent }} />
+                        <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.5)' : T.textMuted, fontSize: 10, letterSpacing: 1 }}>
+                          {m.label}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', flex: 1, marginLeft: 8 }}>
                         <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 13 }} numberOfLines={1}>
                           {m.value}
                         </Text>
                         {m.subValue ? (
-                          <Text
-                            style={{
-                              fontFamily: Font.manrope600,
-                              color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted,
-                              fontSize: 9,
-                              marginTop: 1,
-                            }}>
+                          <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 9, marginTop: 1, textAlign: 'right' }}>
                             {m.subValue}
                           </Text>
                         ) : null}
                       </View>
                     </View>
                   ))}
+                  {presupuestoRecomendadoMes > 0 ? (
+                    <Text style={{ fontFamily: Font.manrope600, fontSize: 9, marginLeft: 2, color: currentDayOfMonth >= daysInMonth && gastadoMes <= presupuestoRecomendadoMes ? (isDark ? '#4DF2B1' : '#0B8E52') : (isDark ? 'rgba(255,255,255,0.38)' : T.textMuted) }}>
+                      {currentDayOfMonth >= daysInMonth && gastadoMes <= presupuestoRecomendadoMes
+                        ? `🎉 Ahorraste ${formatMoney(ahorroObjetivoMes, profile.monedaPrincipal)} este mes`
+                        : `Meta: hasta ${formatMoney(presupuestoRecomendadoMes, profile.monedaPrincipal)} · ahorra ${formatMoney(ahorroObjetivoMes, profile.monedaPrincipal)}`}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
 
-              {presupuestoRecomendadoMes > 0 ? (
-                <Text
-                  style={{
-                    marginTop: -2,
-                    marginBottom: 10,
-                    fontFamily: Font.manrope600,
-                    fontSize: 10,
-                    color:
-                      currentDayOfMonth >= daysInMonth && gastadoMes <= presupuestoRecomendadoMes
-                        ? (isDark ? '#4DF2B1' : '#0B8E52')
-                        : (isDark ? 'rgba(255,255,255,0.45)' : T.textMuted),
-                  }}>
-                  {currentDayOfMonth >= daysInMonth && gastadoMes <= presupuestoRecomendadoMes
-                    ? `Felicitaciones, ahorraste ${formatMoney(ahorroObjetivoMes, profile.monedaPrincipal)} (${Math.round((ahorroObjetivoMes / Math.max(sueldoBase, 1)) * 100)}% de tu sueldo) 🎉`
-                    : `Meta sugerida: gastar hasta ${formatMoney(presupuestoRecomendadoMes, profile.monedaPrincipal)} y ahorrar ${formatMoney(ahorroObjetivoMes, profile.monedaPrincipal)} (30%).`}
+              {/* ── 2. PROGRESO ────────────────────────────────────────── */}
+              <View style={{
+                borderRadius: 14,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(255,255,255,0.09)' : 'rgba(124,58,237,0.12)',
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                marginBottom: 10,
+                gap: 8,
+              }}>
+                <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.40)' : T.textMuted, fontSize: 10, letterSpacing: 1.2 }}>
+                  PROGRESO
                 </Text>
+
+                {/* Racha */}
+                <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, transform: [{ scale: streakScale }] }}>
+                  <Text style={{ fontSize: 14 }}>🔥</Text>
+                  <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFD8A6' : T.textPrimary, fontSize: 13 }}>
+                    {currentStreak > 0 ? `${currentStreak} días seguidos` : 'Sin racha aún'}
+                  </Text>
+                  {currentStreak >= 7 && (
+                    <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,184,77,0.8)' : T.primary, fontSize: 11 }}>
+                      — increíble
+                    </Text>
+                  )}
+                </Animated.View>
+
+                {/* Divider interno */}
+                <View style={{ height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.08)' }} />
+
+                {/* Ayer */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.38)' : T.textMuted, fontSize: 11, width: 52 }}>
+                    vs ayer
+                  </Text>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.82)' : T.textPrimary, fontSize: 12, flex: 1 }}>
+                    {yesterdayComparisonText}
+                  </Text>
+                </View>
+
+                {/* Semana */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.38)' : T.textMuted, fontSize: 11, width: 52 }}>
+                    vs sem.
+                  </Text>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.82)' : T.textPrimary, fontSize: 12, flex: 1 }}>
+                    {weeklyComparisonText}
+                  </Text>
+                </View>
+              </View>
+
+              {/* ── 3. PERFIL FINANCIERO ────────────────────────────────── */}
+              <View style={{
+                borderRadius: 14,
+                backgroundColor: isDark ? 'rgba(77,242,177,0.07)' : 'rgba(124,58,237,0.04)',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(77,242,177,0.22)' : 'rgba(124,58,237,0.12)',
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                marginBottom: 10,
+              }}>
+                <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.40)' : T.textMuted, fontSize: 10, letterSpacing: 1.2 }}>
+                  PERFIL FINANCIERO
+                </Text>
+                <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#EFFFF7' : T.textPrimary, fontSize: 14, marginTop: 6 }}>
+                  {financialIdentity.emoji} {financialIdentity.title}
+                </Text>
+                <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.68)' : T.textSecondary, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
+                  {financialIdentity.description}
+                </Text>
+              </View>
+
+              {/* ── 4. PROYECCIÓN MENSUAL ───────────────────────────────── */}
+              {monthlyProjection.show ? (
+                <View style={{
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(0,212,255,0.07)' : 'rgba(0,153,187,0.04)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(0,212,255,0.22)' : 'rgba(0,153,187,0.14)',
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  marginBottom: 10,
+                }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.40)' : T.textMuted, fontSize: 10, letterSpacing: 1.2 }}>
+                    PROYECCIÓN MENSUAL
+                  </Text>
+                  <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#E9FBFF' : T.textPrimary, fontSize: 13, marginTop: 6, lineHeight: 18 }}>
+                    {monthlyProjection.message}
+                  </Text>
+                  {!monthlyProjection.learning && monthlyProjection.hint ? (
+                    <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.65)' : T.textSecondary, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
+                      {monthlyProjection.hint}
+                    </Text>
+                  ) : null}
+                </View>
               ) : null}
 
-              {/* Separador */}
-              <View style={{
-                height: 1,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.12)',
-                marginBottom: 12,
-              }} />
+              {/* ── Separador ─────────────────────────────────────────── */}
+              <View style={{ height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.12)', marginBottom: 12 }} />
 
-              {/* ── Review diario ── */}
-              <View style={{ gap: 0 }}>
-                {/* Cabecera centrada */}
-                <View style={{ alignItems: 'center', marginBottom: 12 }}>
-                  <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <Text style={{
-                      fontFamily: Font.manrope600,
-                      color: isDark ? '#FFFFFF' : T.textPrimary,
-                      fontSize: 13,
-                      letterSpacing: 2.6,
-                      textTransform: 'uppercase',
-                    }}>
-                      HOY
-                    </Text>
-                    <View
-                      style={{
-                        borderRadius: 8,
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        backgroundColor: isDark ? 'rgba(124,58,237,0.3)' : 'rgba(124,58,237,0.14)',
-                        borderWidth: 1,
-                        borderColor: isDark ? 'rgba(124,58,237,0.65)' : 'rgba(124,58,237,0.35)',
-                      }}>
-                      <Text
-                        style={{
-                          fontFamily: Font.manrope600,
-                          color: isDark ? '#E1D8FF' : T.primary,
-                          fontSize: 12,
-                          letterSpacing: 0.7,
-                        }}>
-                        📅 {todayHeaderDate}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={{
-                    fontFamily: Font.jakarta700,
-                    color: isDark ? '#FFFFFF' : T.textPrimary,
-                    fontSize: 32, lineHeight: 36, letterSpacing: -0.6,
-                  }}>
-                    {formatMoney(todaySpent, profile.monedaPrincipal)}
-                  </Text>
-                  <Text style={{
-                    fontFamily: Font.manrope500,
-                    color: isDark ? 'rgba(255,255,255,0.62)' : T.textSecondary,
-                    fontSize: 12,
-                    marginTop: 3,
-                  }}>
-                    Total de hoy
-                  </Text>
+              {/* ── 5. ANNOUNCER (ANÁLISIS EN VIVO) ────────────────────── */}
+              <View style={{ marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                   <GradientView
                     colors={isDark ? (['#7C3AED', '#00D4FF'] as const) : ([T.primary, T.primary] as const)}
-                    style={{ height: 2, borderRadius: 1, width: 40, marginTop: 6 }}
+                    style={{ width: 3, height: 14, borderRadius: 2 }}
                   />
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 9, letterSpacing: 1.5 }}>
+                    ANÁLISIS EN VIVO
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 3, marginLeft: 'auto' }}>
+                    {todayInsights.map((_, di) => (
+                      <View key={di} style={{ width: di === insightIdx ? 12 : 4, height: 4, borderRadius: 2, backgroundColor: di === insightIdx ? (isDark ? '#9D5FF0' : T.primary) : (isDark ? 'rgba(255,255,255,0.18)' : 'rgba(124,58,237,0.18)') }} />
+                    ))}
+                  </View>
                 </View>
-
-                {/* Filas de categorías */}
-                {todayTopCats.length > 0 ? (
-                  <View style={{ gap: 6 }}>
-                    {todayTopCats.map((it, idx) => {
-                      const barColors = isDark
-                        ? (['#7C3AED', '#00D4FF', '#4DF2B1', '#FF5E7D'] as const)
-                        : ([T.primary, T.primary, T.primary, '#FF5E7D'] as const);
-                      const accent = barColors[idx % 4];
-                      const pctOfToday = todaySpent > 0 ? Math.round((it.total / todaySpent) * 100) : 0;
-                      return (
-                        <View key={it.cat} style={{
-                          flexDirection: 'row', alignItems: 'center', gap: 10,
-                          backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
-                          borderRadius: 10,
-                          paddingHorizontal: 10, paddingVertical: 7,
-                          borderLeftWidth: 2, borderLeftColor: accent,
-                          borderTopWidth: 1, borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
-                          borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
-                          borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
-                        }}>
-                          <Text style={{ fontSize: 16, width: 22, textAlign: 'center' }}>{catEmoji(it.cat)}</Text>
-                          <Text style={{
-                            fontFamily: Font.manrope600, color: T.textSecondary,
-                            fontSize: 12, flex: 1, textTransform: 'capitalize',
-                          }}>
-                            {it.cat}
-                          </Text>
-                          <Text style={{
-                            fontFamily: Font.jakarta700,
-                            color: isDark ? '#FFFFFF' : T.textPrimary,
-                            fontSize: 12,
-                          }}>
-                            {formatMoney(it.total, profile.monedaPrincipal)}
-                          </Text>
-                          <View style={{
-                            backgroundColor: isDark ? `${accent}30` : `${accent}20`,
-                            borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2,
-                          }}>
-                            <Text style={{ fontFamily: Font.manrope600, color: accent, fontSize: 9 }}>
-                              {pctOfToday}%
-                            </Text>
-                          </View>
-                        </View>
-                      );
-                    })}
+                <Animated.View style={{
+                  opacity: insightFade,
+                  transform: [{ translateY: insightSlide }],
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                  backgroundColor: isDark ? 'rgba(157,95,240,0.1)' : 'rgba(124,58,237,0.06)',
+                  borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(157,95,240,0.28)' : 'rgba(124,58,237,0.16)',
+                  ...Platform.select({
+                    ios: { shadowColor: '#7C3AED', shadowOffset: { width: 0, height: 3 }, shadowOpacity: isDark ? 0.35 : 0, shadowRadius: 8 },
+                    android: {},
+                    web: isDark ? { boxShadow: '0 2px 12px rgba(124,58,237,0.2)' } as object : {},
+                  }),
+                }}>
+                  <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: isDark ? 'rgba(157,95,240,0.22)' : 'rgba(124,58,237,0.1)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: isDark ? 'rgba(157,95,240,0.4)' : 'rgba(124,58,237,0.2)' }}>
+                    <Text style={{ fontSize: 15 }}>{todayInsights[insightIdx]?.icon ?? '💡'}</Text>
                   </View>
-                ) : (
-                  <View style={{ alignItems: 'center', paddingVertical: 10, gap: 4 }}>
-                    <Text style={{ fontSize: 20 }}>💡</Text>
-                    <Text style={{ fontFamily: Font.manrope500, color: T.textMuted, fontSize: 12, textAlign: 'center' }}>
-                      Aún no registras gastos hoy.{'\n'}Toca ⚡ para empezar.
-                    </Text>
-                  </View>
-                )}
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? '#D4C5FF' : T.textPrimary, fontSize: 12, flex: 1, lineHeight: 18 }}>
+                    {todayInsights[insightIdx]?.text ?? ''}
+                  </Text>
+                </Animated.View>
+              </View>
 
-                {/* ── Announcer de insights ── */}
-                <View style={{ marginTop: 10 }}>
-                  {/* Header del announcer */}
-                  <View style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6,
-                  }}>
-                    <GradientView
-                      colors={isDark ? (['#7C3AED', '#00D4FF'] as const) : ([T.primary, T.primary] as const)}
-                      style={{ width: 3, height: 14, borderRadius: 2 }}
-                    />
-                    <Text style={{
-                      fontFamily: Font.manrope600,
-                      color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted,
-                      fontSize: 9, letterSpacing: 1.5,
-                    }}>
-                      ANÁLISIS EN VIVO
-                    </Text>
-                    {/* Dots de paginación */}
-                    <View style={{ flexDirection: 'row', gap: 3, marginLeft: 'auto' }}>
-                      {todayInsights.map((_, di) => (
-                        <View
-                          key={di}
-                          style={{
-                            width: di === insightIdx ? 12 : 4,
-                            height: 4, borderRadius: 2,
-                            backgroundColor: di === insightIdx
-                              ? (isDark ? '#9D5FF0' : T.primary)
-                              : (isDark ? 'rgba(255,255,255,0.18)' : 'rgba(124,58,237,0.18)'),
-                          }}
-                        />
-                      ))}
-                    </View>
-                  </View>
-
-                  {/* Cuerpo animado */}
-                  <Animated.View style={{
-                    opacity: insightFade,
-                    transform: [{ translateY: insightSlide }],
-                    flexDirection: 'row', alignItems: 'center', gap: 10,
-                    backgroundColor: isDark ? 'rgba(157,95,240,0.1)' : 'rgba(124,58,237,0.06)',
-                    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
-                    borderWidth: 1,
-                    borderColor: isDark ? 'rgba(157,95,240,0.28)' : 'rgba(124,58,237,0.16)',
-                    ...Platform.select({
-                      ios: { shadowColor: '#7C3AED', shadowOffset: { width: 0, height: 3 }, shadowOpacity: isDark ? 0.35 : 0, shadowRadius: 8 },
-                      android: {},
-                      web: isDark ? { boxShadow: '0 2px 12px rgba(124,58,237,0.2)' } as object : {},
-                    }),
-                  }}>
-                    <View style={{
-                      width: 30, height: 30, borderRadius: 9,
-                      backgroundColor: isDark ? 'rgba(157,95,240,0.22)' : 'rgba(124,58,237,0.1)',
-                      alignItems: 'center', justifyContent: 'center',
-                      borderWidth: 1,
-                      borderColor: isDark ? 'rgba(157,95,240,0.4)' : 'rgba(124,58,237,0.2)',
-                    }}>
-                      <Text style={{ fontSize: 15 }}>{todayInsights[insightIdx]?.icon ?? '💡'}</Text>
-                    </View>
-                    <Text style={{
-                      fontFamily: Font.manrope600,
-                      color: isDark ? '#D4C5FF' : T.textPrimary,
-                      fontSize: 12, flex: 1, lineHeight: 18,
-                    }}>
-                      {todayInsights[insightIdx]?.text ?? ''}
-                    </Text>
-                  </Animated.View>
+              {/* ── 6. CATEGORÍAS DEL DÍA ──────────────────────────────── */}
+              <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <Text style={{ fontFamily: Font.manrope600, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 13, letterSpacing: 2.6, textTransform: 'uppercase' }}>
+                  HOY
+                </Text>
+                <View style={{ borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: isDark ? 'rgba(124,58,237,0.3)' : 'rgba(124,58,237,0.14)', borderWidth: 1, borderColor: isDark ? 'rgba(124,58,237,0.65)' : 'rgba(124,58,237,0.35)' }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? '#E1D8FF' : T.primary, fontSize: 12, letterSpacing: 0.7 }}>
+                    📅 {todayHeaderDate}
+                  </Text>
                 </View>
               </View>
+              <View style={{ alignItems: 'center', marginBottom: 10 }}>
+                <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 28, lineHeight: 32, letterSpacing: -0.6 }}>
+                  {formatMoney(todaySpent, profile.monedaPrincipal)}
+                </Text>
+                <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.55)' : T.textSecondary, fontSize: 12, marginTop: 2 }}>
+                  Total de hoy
+                </Text>
+              </View>
+              {todayTopCats.length > 0 ? (
+                <View style={{ gap: 6 }}>
+                  {todayTopCats.map((it, idx) => {
+                    const barColors = isDark
+                      ? (['#7C3AED', '#00D4FF', '#4DF2B1', '#FF5E7D'] as const)
+                      : ([T.primary, T.primary, T.primary, '#FF5E7D'] as const);
+                    const accent = barColors[idx % 4];
+                    const pctOfToday = todaySpent > 0 ? Math.round((it.total / todaySpent) * 100) : 0;
+                    return (
+                      <View key={it.cat} style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 10,
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
+                        borderRadius: 10,
+                        paddingHorizontal: 10, paddingVertical: 7,
+                        borderLeftWidth: 2, borderLeftColor: accent,
+                        borderTopWidth: 1, borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
+                        borderRightWidth: 1, borderRightColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
+                        borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(124,58,237,0.08)',
+                      }}>
+                        <Text style={{ fontSize: 16, width: 22, textAlign: 'center' }}>{catEmoji(it.cat)}</Text>
+                        <Text style={{ fontFamily: Font.manrope600, color: T.textSecondary, fontSize: 12, flex: 1, textTransform: 'capitalize' }}>
+                          {it.cat}
+                        </Text>
+                        <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 12 }}>
+                          {formatMoney(it.total, profile.monedaPrincipal)}
+                        </Text>
+                        <View style={{ backgroundColor: isDark ? `${accent}30` : `${accent}20`, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 }}>
+                          <Text style={{ fontFamily: Font.manrope600, color: accent, fontSize: 9 }}>
+                            {pctOfToday}%
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={{ alignItems: 'center', paddingVertical: 10, gap: 4 }}>
+                  <Text style={{ fontSize: 20 }}>💡</Text>
+                  <Text style={{ fontFamily: Font.manrope500, color: T.textMuted, fontSize: 12, textAlign: 'center' }}>
+                    Registra tu primer gasto y te mostraré cómo va tu día 💸
+                  </Text>
+                </View>
+              )}
+
             </View>
           </GradientView>
           </View>
@@ -1556,7 +2052,20 @@ export default function HomeScreen() {
           onComplete={handleFirstWalletComplete}
           onSkip={handleFirstWalletSkip}
         />
-        <ExpenseFullSheet open={expenseSheetOpen} onDismiss={() => setExpenseSheetOpen(false)} />
+        <ExpenseFullSheet
+          open={expenseSheetOpen}
+          onDismiss={() => setExpenseSheetOpen(false)}
+          onSavedSuccess={handleExpenseSavedSuccess}
+        />
+        <ExpenseSavedFeedbackModal
+          visible={expenseFeedbackVisible}
+          onContinue={() => setExpenseFeedbackVisible(false)}
+          T={T}
+          todaySpentText={formatMoney(todaySpent, profile.monedaPrincipal)}
+          dominantCategoryLabel={dominantTodayCat?.cat ?? 'sin categoría dominante'}
+          dominantPct={dominantTodayPct}
+          dynamicMessage={expenseFeedbackMessage}
+        />
         <IncomeSheet open={incomeSheetOpen} onDismiss={() => setIncomeSheetOpen(false)} />
         <WaBotPromoModal
           visible={waBotPromoVisible}
