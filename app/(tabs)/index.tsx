@@ -40,6 +40,7 @@ import {
 import { markWaPromoShown, readThemePickerShown, readWaPromoShown } from '@/lib/preferences';
 import { ThemePickerModal } from '@/components/ThemePickerModal';
 import { supabase } from '@/lib/supabase';
+import { trackEvent } from '@/lib/trackEvent';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { MonedaCode } from '@/types';
@@ -360,6 +361,45 @@ function buildMonthlyProjection(
         ? 'Tu ritmo podría subir este mes'
         : 'Vas construyendo claridad sobre tu dinero',
   };
+}
+
+function buildEndOfDaySummary(params: {
+  todaySpent: number;
+  todayTopCats: DailyTopCategory[];
+  dominantPct: number;
+  estimatedDailyBudget: number | null;
+  moneda: MonedaCode;
+}): {
+  title: string;
+  spentLine: string;
+  categoryLine: string;
+  insightLine: string;
+} {
+  const { todaySpent, todayTopCats, dominantPct, estimatedDailyBudget, moneda } = params;
+  const topCat = todayTopCats[0]?.cat ?? 'sin categoría dominante';
+  const spentFmt = formatMoney(todaySpent, moneda).replace(/\s+/g, '');
+
+  let dynamic = 'Buen control hoy 💪';
+  if (dominantPct > 60) {
+    dynamic = `Estás concentrando mucho gasto en ${topCat}`;
+  } else if (estimatedDailyBudget && todaySpent > estimatedDailyBudget) {
+    dynamic = 'Hoy fue un día de gasto alto';
+  }
+
+  return {
+    title: 'Resumen de hoy 👇',
+    spentLine: `Gastaste ${spentFmt} 💸`,
+    categoryLine: `👀 El ${dominantPct}% fue en ${topCat}`,
+    insightLine: `💡 ${dynamic}`,
+  };
+}
+
+function getUserStage(expenses: Array<{ id: string }>): 'empty' | 'early' | 'growing' | 'advanced' {
+  const count = expenses.length;
+  if (count <= 0) return 'empty';
+  if (count <= 3) return 'early';
+  if (count <= 10) return 'growing';
+  return 'advanced';
 }
 
 function calculateDailyControlScore(params: {
@@ -827,6 +867,7 @@ export default function HomeScreen() {
         return;
       }
       if (data.linked === true) {
+        void trackEvent('whatsapp_linked', { source: 'asistente_whatsapp' });
         console.log('[Asistente IA] linked user -> open direct WhatsApp');
       } else if (data.linked === false) {
         console.log('[Asistente IA] unlinked user -> open WhatsApp with code');
@@ -1019,6 +1060,28 @@ export default function HomeScreen() {
       }),
     [weekSpent, previousWeekSpent, profile.monedaPrincipal],
   );
+  const isEndOfDay = useMemo(() => new Date().getHours() >= 19, []);
+  const endOfDaySummary = useMemo(
+    () =>
+      buildEndOfDaySummary({
+        todaySpent,
+        todayTopCats,
+        dominantPct: dominantTodayPct,
+        estimatedDailyBudget,
+        moneda: profile.monedaPrincipal,
+      }),
+    [todaySpent, todayTopCats, dominantTodayPct, estimatedDailyBudget, profile.monedaPrincipal],
+  );
+  const userStage = useMemo(() => getUserStage(expenses), [expenses]);
+  const showQuickSummary = userStage === 'growing' || userStage === 'advanced';
+  const showProgressBlock = userStage !== 'empty';
+  const showYesterdayInProgress = userStage === 'growing' || userStage === 'advanced';
+  const showWeeklyInProgress = userStage === 'advanced';
+  const showIdentity = userStage === 'growing' || userStage === 'advanced';
+  const showProjection = userStage === 'advanced' && monthlyProjection.show;
+  const showAnnouncer = userStage === 'advanced';
+  const showCategoriesOfDay = userStage !== 'empty';
+  const showEndOfDaySummary = userStage === 'advanced' && isEndOfDay && todaySpent > 0;
   const dailyControl = useMemo(
     () =>
       calculateDailyControlScore({
@@ -1359,6 +1422,7 @@ export default function HomeScreen() {
                 </View>
 
                 {/* Resumen HOY / SEMANA / MES */}
+                {showQuickSummary ? (
                 <View style={{ flex: 1, gap: 5, justifyContent: 'center' }}>
                   <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.35)' : T.textMuted, fontSize: 9, letterSpacing: 1.2, marginLeft: 2 }}>
                     Así va tu día
@@ -1404,83 +1468,122 @@ export default function HomeScreen() {
                     </Text>
                   ) : null}
                 </View>
+                ) : null}
               </View>
+
+              {userStage === 'empty' ? (
+                <View style={{ marginBottom: 10, gap: 8 }}>
+                  <Pressable
+                    onPress={() => void openExpenseFlow()}
+                    style={{
+                      borderRadius: 12,
+                      paddingVertical: 11,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: isDark ? 'rgba(124,58,237,0.20)' : T.primaryBg,
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(124,58,237,0.45)' : T.primaryBorder,
+                    }}>
+                    <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#D8C4FF' : T.primary, fontSize: 13 }}>
+                      Registra tu primer gasto ⚡
+                    </Text>
+                  </Pressable>
+                  <View style={{
+                    borderRadius: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(124,58,237,0.12)',
+                  }}>
+                    <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.78)' : T.textSecondary, fontSize: 11 }}>
+                      💡 Empieza hoy para ver tu progreso
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
 
               {/* ── 2. PROGRESO ────────────────────────────────────────── */}
-              <View style={{
-                borderRadius: 14,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
-                borderWidth: 1,
-                borderColor: isDark ? 'rgba(255,255,255,0.09)' : 'rgba(124,58,237,0.12)',
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-                marginBottom: 10,
-                gap: 8,
-              }}>
-                <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.40)' : T.textMuted, fontSize: 10, letterSpacing: 1.2 }}>
-                  PROGRESO
-                </Text>
-
-                {/* Racha */}
-                <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, transform: [{ scale: streakScale }] }}>
-                  <Text style={{ fontSize: 14 }}>🔥</Text>
-                  <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFD8A6' : T.textPrimary, fontSize: 13 }}>
-                    {currentStreak > 0 ? `${currentStreak} días seguidos` : 'Sin racha aún'}
+              {showProgressBlock ? (
+                <View style={{
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(255,255,255,0.09)' : 'rgba(124,58,237,0.12)',
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  marginBottom: 10,
+                  gap: 8,
+                }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.40)' : T.textMuted, fontSize: 10, letterSpacing: 1.2 }}>
+                    PROGRESO
                   </Text>
-                  {currentStreak >= 7 && (
-                    <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,184,77,0.8)' : T.primary, fontSize: 11 }}>
-                      — increíble
+
+                  {/* Racha */}
+                  <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, transform: [{ scale: streakScale }] }}>
+                    <Text style={{ fontSize: 14 }}>🔥</Text>
+                    <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFD8A6' : T.textPrimary, fontSize: 13 }}>
+                      {currentStreak > 0 ? `${currentStreak} días seguidos` : 'Sin racha aún'}
                     </Text>
-                  )}
-                </Animated.View>
+                    {currentStreak >= 7 && (
+                      <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,184,77,0.8)' : T.primary, fontSize: 11 }}>
+                        — increíble
+                      </Text>
+                    )}
+                  </Animated.View>
 
-                {/* Divider interno */}
-                <View style={{ height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.08)' }} />
+                  {showYesterdayInProgress ? (
+                    <>
+                      <View style={{ height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.08)' }} />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.38)' : T.textMuted, fontSize: 11, width: 52 }}>
+                          vs ayer
+                        </Text>
+                        <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.82)' : T.textPrimary, fontSize: 12, flex: 1 }}>
+                          {yesterdayComparisonText}
+                        </Text>
+                      </View>
+                    </>
+                  ) : null}
 
-                {/* Ayer */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.38)' : T.textMuted, fontSize: 11, width: 52 }}>
-                    vs ayer
-                  </Text>
-                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.82)' : T.textPrimary, fontSize: 12, flex: 1 }}>
-                    {yesterdayComparisonText}
-                  </Text>
+                  {showWeeklyInProgress ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.38)' : T.textMuted, fontSize: 11, width: 52 }}>
+                        vs sem.
+                      </Text>
+                      <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.82)' : T.textPrimary, fontSize: 12, flex: 1 }}>
+                        {weeklyComparisonText}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
-
-                {/* Semana */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.38)' : T.textMuted, fontSize: 11, width: 52 }}>
-                    vs sem.
-                  </Text>
-                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.82)' : T.textPrimary, fontSize: 12, flex: 1 }}>
-                    {weeklyComparisonText}
-                  </Text>
-                </View>
-              </View>
+              ) : null}
 
               {/* ── 3. PERFIL FINANCIERO ────────────────────────────────── */}
-              <View style={{
-                borderRadius: 14,
-                backgroundColor: isDark ? 'rgba(77,242,177,0.07)' : 'rgba(124,58,237,0.04)',
-                borderWidth: 1,
-                borderColor: isDark ? 'rgba(77,242,177,0.22)' : 'rgba(124,58,237,0.12)',
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-                marginBottom: 10,
-              }}>
-                <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.40)' : T.textMuted, fontSize: 10, letterSpacing: 1.2 }}>
-                  PERFIL FINANCIERO
-                </Text>
-                <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#EFFFF7' : T.textPrimary, fontSize: 14, marginTop: 6 }}>
-                  {financialIdentity.emoji} {financialIdentity.title}
-                </Text>
-                <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.68)' : T.textSecondary, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
-                  {financialIdentity.description}
-                </Text>
-              </View>
+              {showIdentity ? (
+                <View style={{
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(77,242,177,0.07)' : 'rgba(124,58,237,0.04)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(77,242,177,0.22)' : 'rgba(124,58,237,0.12)',
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  marginBottom: 10,
+                }}>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.40)' : T.textMuted, fontSize: 10, letterSpacing: 1.2 }}>
+                    PERFIL FINANCIERO
+                  </Text>
+                  <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#EFFFF7' : T.textPrimary, fontSize: 14, marginTop: 6 }}>
+                    {financialIdentity.emoji} {financialIdentity.title}
+                  </Text>
+                  <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.68)' : T.textSecondary, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
+                    {financialIdentity.description}
+                  </Text>
+                </View>
+              ) : null}
 
               {/* ── 4. PROYECCIÓN MENSUAL ───────────────────────────────── */}
-              {monthlyProjection.show ? (
+              {showProjection ? (
                 <View style={{
                   borderRadius: 14,
                   backgroundColor: isDark ? 'rgba(0,212,255,0.07)' : 'rgba(0,153,187,0.04)',
@@ -1504,10 +1607,39 @@ export default function HomeScreen() {
                 </View>
               ) : null}
 
+              {showEndOfDaySummary ? (
+                <View style={{
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(255,184,77,0.08)' : 'rgba(255,184,77,0.06)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(255,184,77,0.22)' : 'rgba(224,128,0,0.16)',
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  marginBottom: 10,
+                  gap: 5,
+                }}>
+                  <Text style={{ fontFamily: Font.jakarta700, color: isDark ? '#FFE7C0' : T.textPrimary, fontSize: 13 }}>
+                    {endOfDaySummary.title}
+                  </Text>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? 'rgba(255,255,255,0.82)' : T.textPrimary, fontSize: 12 }}>
+                    {endOfDaySummary.spentLine}
+                  </Text>
+                  <Text style={{ fontFamily: Font.manrope500, color: isDark ? 'rgba(255,255,255,0.72)' : T.textSecondary, fontSize: 11 }}>
+                    {endOfDaySummary.categoryLine}
+                  </Text>
+                  <Text style={{ fontFamily: Font.manrope600, color: isDark ? '#FFD699' : T.primary, fontSize: 11 }}>
+                    {endOfDaySummary.insightLine}
+                  </Text>
+                </View>
+              ) : null}
+
               {/* ── Separador ─────────────────────────────────────────── */}
-              <View style={{ height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.12)', marginBottom: 12 }} />
+              {showAnnouncer || showCategoriesOfDay ? (
+                <View style={{ height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(124,58,237,0.12)', marginBottom: 12 }} />
+              ) : null}
 
               {/* ── 5. ANNOUNCER (ANÁLISIS EN VIVO) ────────────────────── */}
+              {showAnnouncer ? (
               <View style={{ marginBottom: 12 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                   <GradientView
@@ -1545,8 +1677,11 @@ export default function HomeScreen() {
                   </Text>
                 </Animated.View>
               </View>
+              ) : null}
 
               {/* ── 6. CATEGORÍAS DEL DÍA ──────────────────────────────── */}
+              {showCategoriesOfDay ? (
+              <>
               <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <Text style={{ fontFamily: Font.manrope600, color: isDark ? '#FFFFFF' : T.textPrimary, fontSize: 13, letterSpacing: 2.6, textTransform: 'uppercase' }}>
                   HOY
@@ -1608,6 +1743,8 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               )}
+              </>
+              ) : null}
 
             </View>
           </GradientView>

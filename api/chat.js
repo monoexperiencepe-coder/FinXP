@@ -54,23 +54,32 @@ module.exports = async function handler(req, res) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
   try {
-    const supabase = createClient(url, key);
+    // Cliente solo para validar el token del usuario.
+    const supabaseAuth = createClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    });
     const anthropic = new Anthropic({ apiKey: anthropicKey });
 
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser(accessToken);
+    } = await supabaseAuth.auth.getUser(accessToken);
     if (authError || !user) return res.status(401).json({ error: 'No autorizado' });
 
     const userId = user.id;
     const mesActual = new Date().toISOString().slice(0, 7);
 
+    // Cliente para queries con contexto authenticated real (RLS usa auth.uid()).
+    const supabaseUser = createClient(url, key, {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    });
+
     const [gastosRes, ingresosRes, presupuestosRes, perfilRes] = await Promise.all([
-      supabase.from('expenses').select('*').eq('user_id', userId).eq('mes', mesActual),
-      supabase.from('incomes').select('*').eq('user_id', userId).eq('mes', mesActual),
-      supabase.from('budgets').select('*').eq('user_id', userId).eq('mes', mesActual),
-      supabase.from('user_profiles').select('*').eq('id', userId).maybeSingle(),
+      supabaseUser.from('expenses').select('*').eq('user_id', userId).eq('mes', mesActual),
+      supabaseUser.from('incomes').select('*').eq('user_id', userId).eq('mes', mesActual),
+      supabaseUser.from('budgets').select('*').eq('user_id', userId).eq('mes', mesActual),
+      supabaseUser.from('user_profiles').select('*').eq('id', userId).maybeSingle(),
     ]);
 
     const gastos = gastosRes.data || [];

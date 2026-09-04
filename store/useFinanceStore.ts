@@ -5,6 +5,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { EXPENSE_CATEGORIES } from '@/constants/expenseCategories';
 import * as db from '@/lib/database';
 import { supabase } from '@/lib/supabase';
+import { trackEvent } from '@/lib/trackEvent';
 import { createId } from '@/lib/ids';
 import {
   addDaysToDateKey,
@@ -866,6 +867,7 @@ export const useFinanceStore = create<FinanceState>()(
         }
 
         const { profile, expenses, budgets } = get();
+        const wasFirstExpense = expenses.length === 0;
         const fechaIso = fecha ?? new Date().toISOString();
         const fechaDate = new Date(fechaIso);
         const ym = currentYearMonth(fechaDate);
@@ -895,6 +897,9 @@ export const useFinanceStore = create<FinanceState>()(
           throw e;
         }
         const expense = db.rowToExpense(newRow as db.ExpenseDbRow);
+        if (wasFirstExpense) {
+          void trackEvent('first_expense', { moneda: expense.moneda });
+        }
         const streak = bumpRacha(profile.ultimoRegistro, profile.rachaActual);
         const xp = applyXpToProfile({
           nivel: profile.nivel,

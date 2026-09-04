@@ -28,8 +28,8 @@ function parseJsonBody(req) {
   return {};
 }
 
-function randomSixDigitCode() {
-  return String(100000 + Math.floor(Math.random() * 900000));
+function randomLinkCode() {
+  return String(10000000 + Math.floor(Math.random() * 90000000));
 }
 
 module.exports = async function handler(req, res) {
@@ -105,7 +105,7 @@ module.exports = async function handler(req, res) {
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   let code = null;
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const c = randomSixDigitCode();
+    const c = randomLinkCode();
     const { error: insErr } = await supabaseService.from('whatsapp_link_codes').insert({
       user_id: user.id,
       code: c,

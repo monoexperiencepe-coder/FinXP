@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 
 import { darkTheme as T } from '@/constants/theme';
+import { PRIVACY_BRIEF_NOTICE } from '@/constants/privacyBrief';
 import {
   clearOnboardingDraftLocal,
   clearOnboardingResumeStepLocal,
@@ -26,6 +27,7 @@ import {
   writeOnboardingResumeStepLocal,
 } from '@/lib/preferences';
 import { supabase } from '@/lib/supabase';
+import { trackEvent } from '@/lib/trackEvent';
 import { useAuthStore } from '@/store/useAuthStore';
 
 type OnboardingDraft = {
@@ -130,7 +132,7 @@ export default function RegisterScreen() {
   const blob2TransY = blobFloat2.interpolate({ inputRange: [0, 1], outputRange: [0, 22] });
 
   // ── form logic ─────────────────────────────────────────────────────────────
-  const persistOnboardingDraft = async (userId: string, draft: OnboardingDraft) => {
+  const persistOnboardingDraft = async (userId: string, draft: OnboardingDraft): Promise<boolean> => {
     const profileBasePatch: Record<string, unknown> = {
       moneda_principal: draft.monedaPrincipal ?? 'PEN',
       tipo_de_cambio:
@@ -142,11 +144,18 @@ export default function RegisterScreen() {
       onboarding_done: true,
     };
 
-    const { error: profileBaseErr } = await supabase
+    const { data: profileUpserted, error: profileBaseErr } = await supabase
       .from('user_profiles')
-      .update(profileBasePatch)
-      .eq('id', userId);
-    if (profileBaseErr) throw profileBaseErr;
+      .upsert({ id: userId, ...profileBasePatch }, { onConflict: 'id' })
+      .select('id')
+      .maybeSingle();
+    if (profileBaseErr) {
+      console.error('register.persistOnboardingDraft user_profiles base upsert:', profileBaseErr);
+      throw profileBaseErr;
+    }
+    if (!profileUpserted?.id) {
+      throw new Error('register.persistOnboardingDraft profile not persisted');
+    }
 
     // Campos opcionales del onboarding (si la base no los tiene, no rompemos el alta).
     const optionalPatch: Record<string, unknown> = {};
@@ -157,7 +166,14 @@ export default function RegisterScreen() {
       optionalPatch.sueldo_mensual_fijo = Number(draft.ingresoAprox);
     }
     if (Object.keys(optionalPatch).length > 0) {
-      await supabase.from('user_profiles').update(optionalPatch).eq('id', userId);
+      const { error: optionalErr } = await supabase
+        .from('user_profiles')
+        .update(optionalPatch)
+        .eq('id', userId);
+      if (optionalErr) {
+        console.error('register.persistOnboardingDraft user_profiles optional update:', optionalErr);
+        throw optionalErr;
+      }
     }
 
     const gastoCats = Array.isArray(draft.categoriasGasto)
@@ -169,7 +185,10 @@ export default function RegisterScreen() {
         .delete()
         .eq('user_id', userId)
         .eq('tipo', 'gasto');
-      if (deleteErr) throw deleteErr;
+      if (deleteErr) {
+        console.error('register.persistOnboardingDraft user_categories delete gasto:', deleteErr);
+        throw deleteErr;
+      }
 
       const payload = gastoCats.map((c, idx) => ({
         user_id: userId,
@@ -179,8 +198,12 @@ export default function RegisterScreen() {
         orden: Number.isFinite(Number(c.orden)) ? Number(c.orden) : idx + 1,
       }));
       const { error: insertErr } = await supabase.from('user_categories').insert(payload);
-      if (insertErr) throw insertErr;
+      if (insertErr) {
+        console.error('register.persistOnboardingDraft user_categories insert gasto:', insertErr);
+        throw insertErr;
+      }
     }
+    return true;
   };
 
   const resolveUserIdAfterSignup = async (): Promise<string | null> => {
@@ -202,15 +225,40 @@ export default function RegisterScreen() {
     try {
       await signUp(email.trim(), password, nombre.trim(), sueldoMensualFijo);
       const draft = await readOnboardingDraftLocal<OnboardingDraft>();
+      const userId = await resolveUserIdAfterSignup();
+
       if (draft) {
-        const userId = await resolveUserIdAfterSignup();
-        if (userId) {
-          await persistOnboardingDraft(userId, draft);
+        if (!userId) {
+          setError('Tu cuenta se creó, pero falta confirmar la sesión. Inicia sesión para terminar la configuración.');
+          await clearOnboardingResumeStepLocal();
+          router.replace('/(auth)/login' as any);
+          return;
         }
+
+        const persisted = await persistOnboardingDraft(userId, draft);
+        if (!persisted) {
+          throw new Error('register.persistOnboardingDraft did not complete');
+        }
+        // Solo limpiar draft cuando la persistencia terminó correctamente.
         await clearOnboardingDraftLocal();
+        setError('');
+        await clearOnboardingResumeStepLocal();
+        void trackEvent('signup_success', { had_onboarding_draft: true });
+        router.replace('/(tabs)' as any);
+        return;
       }
+
+      // Sin draft: si no hay sesión inmediata, probablemente requiere confirmación por email.
+      if (!userId) {
+        setError('Revisa tu correo para confirmar tu cuenta.');
+        await clearOnboardingResumeStepLocal();
+        router.replace('/(auth)/login' as any);
+        return;
+      }
+
       setError('');
       await clearOnboardingResumeStepLocal();
+      void trackEvent('signup_success', { had_onboarding_draft: false });
       router.replace('/(tabs)' as any);
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
@@ -375,6 +423,7 @@ export default function RegisterScreen() {
               </TouchableOpacity>
 
               <Text style={S.meta}>Al continuar aceptas nuestros términos de uso</Text>
+              <Text style={S.privacyNote}>{PRIVACY_BRIEF_NOTICE}</Text>
             </View>
           </Animated.View>
 
@@ -470,4 +519,13 @@ const S = StyleSheet.create({
   ctaText: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', fontFamily: 'PlusJakartaSans_700Bold', letterSpacing: 0.3 },
 
   meta: { fontSize: 11, color: 'rgba(196,181,253,0.4)', fontFamily: 'Manrope_400Regular', textAlign: 'center', marginTop: -4 },
+  privacyNote: {
+    fontSize: 10,
+    lineHeight: 15,
+    color: 'rgba(196,181,253,0.55)',
+    fontFamily: 'Manrope_400Regular',
+    textAlign: 'center',
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
 });

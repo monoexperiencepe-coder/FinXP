@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 
 import LoaderTransicion from '@/components/LoaderTransicion';
+import { PRIVACY_BRIEF_NOTICE } from '@/constants/privacyBrief';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import {
   clearOnboardingResumeStepLocal,
@@ -28,6 +29,7 @@ import {
   writeOnboardingDraftLocal,
   writeOnboardingResumeStepLocal,
 } from '@/lib/preferences';
+import { trackEvent } from '@/lib/trackEvent';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_BANCOS_DISPONIBLES, type MonedaCode } from '@/types';
 
@@ -878,6 +880,11 @@ export default function OnboardingScreen() {
           orden: i + 1,
         })),
         onboardingDoneLocalAt: new Date().toISOString(),
+      });
+
+      void trackEvent('finish_onboarding', {
+        source: 'onboarding_ui',
+        income_sources: selectedIncomeSourceIds.length,
       });
 
       setFinishing(false);
@@ -2086,6 +2093,19 @@ export default function OnboardingScreen() {
                   podrá sugerirte presupuestos con sentido.
                 </Text>
               </View>
+
+              <Text
+                style={{
+                  fontSize: 10,
+                  lineHeight: 15,
+                  color: T.textMuted,
+                  width: '100%',
+                  textAlign: 'center',
+                  opacity: 0.72,
+                  paddingHorizontal: 4,
+                }}>
+                {PRIVACY_BRIEF_NOTICE}
+              </Text>
 
               <TouchableOpacity
                 style={[
