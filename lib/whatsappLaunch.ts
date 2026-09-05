@@ -1,7 +1,39 @@
 import { Linking, Platform } from 'react-native';
 
+import {
+  detectMobileWebFromUserAgent,
+  extractVincularCodeFromLaunchUrl as extractVincularCodeFromLaunchUrlPure,
+  normalizeWhatsappLaunchUrl as normalizeWhatsappLaunchUrlPure,
+  whatsappLaunchMeta as whatsappLaunchMetaPure,
+  whatsappWebLinkTargetFromContext,
+} from './whatsappLaunchUrl';
+
 /** Producción Vercel (fin-xp). Fallback si el bundle native no incluye EXPO_PUBLIC_SITE_URL. */
 export const WHATSAPP_API_SITE_FALLBACK = 'https://fin-xp-sigma.vercel.app';
+
+export type WhatsappLaunchContext = {
+  platformOs: string;
+  isWeb: boolean;
+  isMobileWeb: boolean;
+  isDesktopWeb: boolean;
+  isNative: boolean;
+  userAgent: string | null;
+};
+
+export function getWhatsappLaunchContext(): WhatsappLaunchContext {
+  const isWeb = Platform.OS === 'web';
+  const ua =
+    isWeb && typeof navigator !== 'undefined' ? String(navigator.userAgent || '') : null;
+  const isMobileWeb = isWeb && detectMobileWebFromUserAgent(ua || '');
+  return {
+    platformOs: Platform.OS,
+    isWeb,
+    isMobileWeb,
+    isDesktopWeb: isWeb && !isMobileWeb,
+    isNative: !isWeb,
+    userAgent: ua,
+  };
+}
 
 export function whatsappLinkCodeApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
@@ -24,47 +56,36 @@ export function waLaunchDebug(
 
 /**
  * Normaliza api.whatsapp.com/send → wa.me (más fiable en web/mobile).
- * Valida que haya teléfono solo-dígitos (WHATSAPP_BOT_NUMBER del server, no PHONE_NUMBER_ID).
+ * Valida dígitos (WHATSAPP_BOT_NUMBER del server, no PHONE_NUMBER_ID).
  */
 export function normalizeWhatsappLaunchUrl(rawUrl: string): string {
-  let u: URL;
-  try {
-    u = new URL(rawUrl);
-  } catch {
-    throw new Error('URL de WhatsApp inválida en la respuesta del servidor.');
-  }
+  return normalizeWhatsappLaunchUrlPure(rawUrl);
+}
 
-  const phone = (u.searchParams.get('phone') || '').replace(/\D/g, '');
-  const text = u.searchParams.get('text') || '';
-
-  if (!phone || phone.length < 8) {
-    throw new Error('El servidor no devolvió un número de WhatsApp válido.');
-  }
-
-  return `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+export function extractVincularCodeFromLaunchUrl(url: string): string | null {
+  return extractVincularCodeFromLaunchUrlPure(url);
 }
 
 export function whatsappLaunchMeta(rawUrl: string): {
   phoneDigits: number;
   hasVincularText: boolean;
 } {
-  const normalized = normalizeWhatsappLaunchUrl(rawUrl);
-  const u = new URL(normalized);
-  const phone = u.pathname.replace(/^\//, '').replace(/\D/g, '');
-  const text = u.searchParams.get('text') || '';
-  return {
-    phoneDigits: phone.length,
-    hasVincularText: /vincular/i.test(text),
-  };
+  return whatsappLaunchMetaPure(rawUrl);
 }
 
-/** Web: click programático en anchor real (evita SPA/router que ignora location.assign). */
-export function tryOpenWhatsappWeb(url: string): boolean {
-  if (typeof document === 'undefined') return false;
+/** Target recomendado para anchor web según dispositivo. */
+export function whatsappWebLinkTarget(ctx: WhatsappLaunchContext = getWhatsappLaunchContext()): '_self' | '_blank' {
+  return whatsappWebLinkTargetFromContext(ctx);
+}
+
+/** Web desktop: anchor programático. Mobile web: NO auto-navegar (requiere tap en <a> real). */
+export function tryOpenWhatsappWebAuto(url: string): boolean {
+  const ctx = getWhatsappLaunchContext();
+  if (!ctx.isWeb || ctx.isMobileWeb || typeof document === 'undefined') return false;
   try {
     const a = document.createElement('a');
     a.href = url;
-    a.target = '_self';
+    a.target = whatsappWebLinkTarget(ctx);
     a.rel = 'noopener noreferrer';
     a.style.display = 'none';
     document.body.appendChild(a);
@@ -76,7 +97,7 @@ export function tryOpenWhatsappWeb(url: string): boolean {
   }
 }
 
-/** Native: whatsapp:// si está instalado, luego wa.me. */
+/** Native: whatsapp:// solo en app nativa, nunca en web. */
 export async function openWhatsappNative(normalizedWaMeUrl: string): Promise<void> {
   const u = new URL(normalizedWaMeUrl);
   const phone = u.pathname.replace(/^\//, '').replace(/\D/g, '');
@@ -104,40 +125,45 @@ export async function openWhatsappNative(normalizedWaMeUrl: string): Promise<voi
   );
 }
 
-/**
- * Web: intento automático + siempre devuelve true para mostrar fallback UI.
- * Native: abre directo; lanza si falla (caller muestra fallback).
- */
 export async function launchWhatsappFromServerUrl(rawUrl: string): Promise<{
   normalizedUrl: string;
   showWebFallback: boolean;
+  launchContext: WhatsappLaunchContext;
 }> {
+  const launchContext = getWhatsappLaunchContext();
   const normalizedUrl = normalizeWhatsappLaunchUrl(rawUrl);
   const meta = whatsappLaunchMeta(rawUrl);
+
   waLaunchDebug('D-url-normalized', {
-    platform: Platform.OS,
+    platform: launchContext.platformOs,
+    isMobileWeb: launchContext.isMobileWeb,
     phoneDigits: meta.phoneDigits,
     hasVincularText: meta.hasVincularText,
   });
 
-  if (Platform.OS === 'web') {
-    waLaunchDebug('E-web-nav-attempt', { method: 'anchor-click' });
-    const clicked = tryOpenWhatsappWeb(normalizedUrl);
-    waLaunchDebug('F-auto-nav-result', { clicked, fallbackRequired: true });
-    return { normalizedUrl, showWebFallback: true };
+  if (launchContext.isWeb) {
+    waLaunchDebug('E-web-branch', {
+      isMobileWeb: launchContext.isMobileWeb,
+      autoNav: !launchContext.isMobileWeb,
+    });
+    if (!launchContext.isMobileWeb) {
+      waLaunchDebug('E-web-nav-attempt', { method: 'anchor-click-auto' });
+      const clicked = tryOpenWhatsappWebAuto(normalizedUrl);
+      waLaunchDebug('F-auto-nav-result', { clicked });
+    } else {
+      waLaunchDebug('F-mobile-web-manual-only', { reason: 'user-tap-required' });
+    }
+    return { normalizedUrl, showWebFallback: true, launchContext };
   }
 
   waLaunchDebug('E-native-nav-attempt', { method: 'linking' });
   await openWhatsappNative(normalizedUrl);
   waLaunchDebug('F-native-nav-result', { ok: true });
-  return { normalizedUrl, showWebFallback: false };
+  return { normalizedUrl, showWebFallback: false, launchContext };
 }
 
+/** Solo native: web debe usar <a href> real en UI. */
 export function openWhatsappFromPrompt(url: string): void {
-  if (Platform.OS === 'web') {
-    waLaunchDebug('F-manual-tap', { method: 'anchor-click-user-gesture' });
-    tryOpenWhatsappWeb(url);
-    return;
-  }
+  if (Platform.OS === 'web') return;
   void Linking.openURL(url);
 }

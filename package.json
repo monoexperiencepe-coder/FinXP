@@ -7,7 +7,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test:whatsapp": "node --test api/__tests__/whatsapp-hardening.test.js api/__tests__/whatsapp-parity.test.js"
+    "test:whatsapp": "node --test api/__tests__/whatsapp-hardening.test.js api/__tests__/whatsapp-parity.test.js lib/__tests__/whatsappLaunch.test.js lib/__tests__/bootstrapRouting.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

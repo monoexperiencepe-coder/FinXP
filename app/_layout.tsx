@@ -23,11 +23,12 @@ import '../global.css';
 import { AppPreloader } from '@/components/AppPreloader';
 import { darkTheme, lightTheme } from '@/constants/theme';
 import {
-  clearOnboardingLocal,
   clearLastLogin,
   readLastLoginMs,
-  readOnboardingCompletedLocal,
+  readOnboardingRemoteAndSync,
+  writeOnboardingCompletedLocal,
 } from '@/lib/preferences';
+import { resolveBootstrapRouteTarget, resolveOnboardingCompletedForRouting } from '@/lib/bootstrapRouting';
 import { supabase } from '@/lib/supabase';
 import { useAppShellStore } from '@/store/useAppShellStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -44,6 +45,8 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const [introDone, setIntroDone] = useState(false);
   const [sessionValidated, setSessionValidated] = useState(false);
+  const [bootstrapReady, setBootstrapReady] = useState(false);
+  const [onboardingCompletedResolved, setOnboardingCompletedResolved] = useState<boolean | null>(null);
   const onIntroFinish = useCallback(() => {
     setIntroDone(true);
     useAppShellStore.getState().setPreloaderComplete(true);
@@ -148,9 +151,8 @@ export default function RootLayout() {
       if (cancelled) return;
 
       if (error || !user) {
-        // Sesión local huérfana (usuario borrado o token inválido): cerrar y limpiar.
+        // Sesión local huérfana: cerrar sesión sin borrar flags de onboarding ni lastLogin.
         await supabase.auth.signOut();
-        await Promise.all([clearLastLogin(), clearOnboardingLocal()]);
 
         const currentTheme = useFinanceStore.getState().theme;
         void useFinanceStore.persist.clearStorage();
@@ -187,35 +189,57 @@ export default function RootLayout() {
   }, [initialized, session, router]);
 
   useEffect(() => {
-    if (!initialized || !loaded || !sessionValidated) return;
-    const root = segments[0] as string | undefined;
-    const inAuthGroup = root === '(auth)';
-    const inOnboarding = root === 'onboarding';
-
-    const checkOnboarding = async () => {
-      // Fase 1: sin sesión, decidir onboarding/login por flag local.
-      if (!session) {
-        const onboardingCompleted = await readOnboardingCompletedLocal();
-        if (!onboardingCompleted) {
-          if (!inOnboarding) router.replace('/onboarding' as any);
-          return;
+    if (!initialized || !sessionValidated) {
+      setBootstrapReady(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const userId = session?.user?.id ?? null;
+      let completed = await resolveOnboardingCompletedForRouting({ userId });
+      if (userId && !completed) {
+        const remote = await readOnboardingRemoteAndSync(userId);
+        if (remote === true) {
+          await writeOnboardingCompletedLocal(true);
+          completed = true;
         }
-        // Permitir /onboarding aunque completed sea true (p. ej. volver desde registro).
-        if (!inAuthGroup && !inOnboarding) router.replace('/(auth)/login' as any);
-        return;
       }
-
-      // Con sesión válida: siempre tabs (manteniendo la validación de sesión fantasma en el efecto previo).
-      if (session && (inAuthGroup || inOnboarding)) {
-        if (postLoginTransitionPending) {
-          return;
-        }
-        router.replace('/(tabs)' as any);
+      if (!cancelled) {
+        setOnboardingCompletedResolved(completed);
+        setBootstrapReady(true);
       }
+    })();
+    return () => {
+      cancelled = true;
     };
+  }, [initialized, sessionValidated, session?.user?.id]);
 
-    void checkOnboarding();
-  }, [session, initialized, segments, loaded, router, postLoginTransitionPending]);
+  useEffect(() => {
+    if (!initialized || !loaded || !sessionValidated || !introDone || !bootstrapReady) return;
+    if (onboardingCompletedResolved == null) return;
+
+    const root = segments[0] as string | undefined;
+    const target = resolveBootstrapRouteTarget({
+      hasSession: !!session,
+      onboardingCompleted: onboardingCompletedResolved,
+      rootSegment: root,
+      postLoginTransitionPending,
+    });
+
+    if (target === 'onboarding') router.replace('/onboarding' as any);
+    else if (target === 'login') router.replace('/(auth)/login' as any);
+    else if (target === 'home') router.replace('/(tabs)' as any);
+  }, [
+    session,
+    initialized,
+    segments,
+    loaded,
+    router,
+    postLoginTransitionPending,
+    introDone,
+    bootstrapReady,
+    onboardingCompletedResolved,
+  ]);
 
   useEffect(() => {
     if (loaded) {

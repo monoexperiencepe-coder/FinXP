@@ -41,6 +41,8 @@ import { ThemePickerModal } from '@/components/ThemePickerModal';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/trackEvent';
 import {
+  extractVincularCodeFromLaunchUrl,
+  getWhatsappLaunchContext,
   launchWhatsappFromServerUrl,
   normalizeWhatsappLaunchUrl,
   openWhatsappFromPrompt,
@@ -55,6 +57,8 @@ import type { MonedaCode } from '@/types';
 type WhatsappOpenPromptState = {
   url: string;
   linked: boolean;
+  vincularCode: string | null;
+  isMobileWeb: boolean;
 };
 
 /* ────────────────────────────────────────────────────────────────────────────── */
@@ -786,9 +790,25 @@ export default function HomeScreen() {
   }, [pendingExpenseFeedback, expenseSheetOpen]);
 
   const handleWhatsappOpenPromptPress = useCallback(() => {
-    if (!whatsappOpenPrompt) return;
+    if (!whatsappOpenPrompt || Platform.OS === 'web') return;
     openWhatsappFromPrompt(whatsappOpenPrompt.url);
   }, [whatsappOpenPrompt]);
+
+  const handleCopyVincularCode = useCallback(async () => {
+    const code = whatsappOpenPrompt?.vincularCode;
+    if (!code) return;
+    const message = `VINCULAR ${code}`;
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message);
+        Alert.alert('Copiado', 'Pegá el mensaje en WhatsApp.');
+        return;
+      }
+      Alert.alert('Código de vinculación', `Enviá este mensaje:\n${message}`);
+    } catch {
+      Alert.alert('Código de vinculación', `Enviá este mensaje:\n${message}`);
+    }
+  }, [whatsappOpenPrompt?.vincularCode]);
 
   const handleAsistenteWhatsapp = useCallback(async () => {
     if (asistenteWhatsappLock.current) return;
@@ -850,9 +870,14 @@ export default function HomeScreen() {
         void trackEvent('whatsapp_linked', { source: 'asistente_whatsapp' });
       }
       try {
-        const { normalizedUrl, showWebFallback } = await launchWhatsappFromServerUrl(url);
+        const { normalizedUrl, showWebFallback, launchContext } = await launchWhatsappFromServerUrl(url);
         if (showWebFallback) {
-          setWhatsappOpenPrompt({ url: normalizedUrl, linked: data.linked === true });
+          setWhatsappOpenPrompt({
+            url: normalizedUrl,
+            linked: data.linked === true,
+            vincularCode: data.code ?? extractVincularCodeFromLaunchUrl(normalizedUrl),
+            isMobileWeb: launchContext.isMobileWeb,
+          });
         }
       } catch (launchErr) {
         let normalizedUrl = url;
@@ -861,7 +886,12 @@ export default function HomeScreen() {
         } catch {
           /* keep raw url */
         }
-        setWhatsappOpenPrompt({ url: normalizedUrl, linked: data.linked === true });
+        setWhatsappOpenPrompt({
+          url: normalizedUrl,
+          linked: data.linked === true,
+          vincularCode: data.code ?? extractVincularCodeFromLaunchUrl(normalizedUrl),
+          isMobileWeb: getWhatsappLaunchContext().isMobileWeb,
+        });
         const msg = launchErr instanceof Error ? launchErr.message : String(launchErr);
         Alert.alert('WhatsApp', `${msg}\n\nTocá "Abrir WhatsApp" para continuar.`);
       }
@@ -2230,20 +2260,50 @@ export default function HomeScreen() {
               </Text>
               <Text style={{ fontFamily: Font.manrope400, fontSize: 13, color: T.textSecondary, textAlign: 'center', lineHeight: 20 }}>
                 {whatsappOpenPrompt?.linked
-                  ? 'Tu cuenta ya está vinculada. Tocá el botón para continuar en WhatsApp.'
-                  : 'Tu código está listo. Tocá abajo para abrir WhatsApp con el mensaje VINCULAR prellenado.'}
+                  ? 'Tu cuenta ya está vinculada. Tocá abajo para continuar en WhatsApp.'
+                  : whatsappOpenPrompt?.isMobileWeb
+                    ? 'Tu código está listo. Tocá el botón verde para abrir WhatsApp con VINCULAR prellenado.'
+                    : 'Tu código está listo. Si no se abrió solo, tocá abajo para abrir WhatsApp.'}
               </Text>
-              <Pressable
-                onPress={handleWhatsappOpenPromptPress}
-                style={{ borderRadius: 14, overflow: 'hidden' }}>
-                <GradientView
-                  colors={['#25D366', '#128C7E']}
-                  style={{ height: 48, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontFamily: Font.jakarta700, color: '#FFFFFF', fontSize: 15 }}>
-                    Abrir WhatsApp
+              {Platform.OS === 'web' && whatsappOpenPrompt ? (
+                <a
+                  href={whatsappOpenPrompt.url}
+                  target={whatsappOpenPrompt.isMobileWeb ? '_blank' : '_self'}
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'flex',
+                    height: 48,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 14,
+                    background: 'linear-gradient(90deg, #25D366 0%, #128C7E 100%)',
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                    fontSize: 15,
+                    textDecoration: 'none',
+                  }}>
+                  Abrir WhatsApp
+                </a>
+              ) : (
+                <Pressable
+                  onPress={handleWhatsappOpenPromptPress}
+                  style={{ borderRadius: 14, overflow: 'hidden' }}>
+                  <GradientView
+                    colors={['#25D366', '#128C7E']}
+                    style={{ height: 48, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontFamily: Font.jakarta700, color: '#FFFFFF', fontSize: 15 }}>
+                      Abrir WhatsApp
+                    </Text>
+                  </GradientView>
+                </Pressable>
+              )}
+              {!whatsappOpenPrompt?.linked && whatsappOpenPrompt?.vincularCode ? (
+                <Pressable onPress={() => { void handleCopyVincularCode(); }} hitSlop={8}>
+                  <Text style={{ fontFamily: Font.manrope600, fontSize: 13, color: '#25D366', textAlign: 'center' }}>
+                    Copiar código VINCULAR
                   </Text>
-                </GradientView>
-              </Pressable>
+                </Pressable>
+              ) : null}
               <Pressable onPress={() => setWhatsappOpenPrompt(null)} hitSlop={8}>
                 <Text style={{ fontFamily: Font.manrope500, fontSize: 13, color: T.textSecondary, textAlign: 'center' }}>
                   Cancelar

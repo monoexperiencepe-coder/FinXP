@@ -21,7 +21,7 @@ import { GradientView } from '@/components/ui/GradientView';
 import { useTheme } from '@/hooks/useTheme';
 import * as db from '@/lib/database';
 import { currentYearMonth } from '@/lib/dates';
-import { clearLastLogin, clearOnboardingLocal } from '@/lib/preferences';
+import { clearLastLogin } from '@/lib/preferences';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import { DEFAULT_BANCOS_DISPONIBLES, DEFAULT_METODOS_DE_PAGO } from '@/types';
@@ -295,7 +295,6 @@ export default function PerfilScreen() {
   const handleSignOut = async () => {
     try {
       await signOut();
-      await clearOnboardingLocal();
       await clearLastLogin();
     } catch (e) {
       console.error('Error signing out:', e);
