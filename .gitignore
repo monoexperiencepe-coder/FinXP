@@ -43,3 +43,5 @@ api/.env
 /android
 .vscode.zip
 *.zip
+
+.vercel
