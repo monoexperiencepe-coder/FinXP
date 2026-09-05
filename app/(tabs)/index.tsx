@@ -4,7 +4,6 @@ import {
   Alert,
   Animated,
   Easing,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -41,66 +40,22 @@ import { markWaPromoShown, readThemePickerShown, readWaPromoShown } from '@/lib/
 import { ThemePickerModal } from '@/components/ThemePickerModal';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/trackEvent';
+import {
+  launchWhatsappFromServerUrl,
+  normalizeWhatsappLaunchUrl,
+  openWhatsappFromPrompt,
+  waLaunchDebug,
+  whatsappLaunchMeta,
+  whatsappLinkCodeApiUrl,
+} from '@/lib/whatsappLaunch';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { MonedaCode } from '@/types';
 
-/** Producción Vercel (fin-xp). Fallback si el bundle native no incluye EXPO_PUBLIC_SITE_URL. */
-const WHATSAPP_API_SITE_FALLBACK = 'https://fin-xp-sigma.vercel.app';
-
-function whatsappLinkCodeApiUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}/api/whatsapp-link-code`;
-  }
-  const base =
-    process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/$/, '') || WHATSAPP_API_SITE_FALLBACK;
-  return `${base}/api/whatsapp-link-code`;
-}
-
-function parseWhatsappSendUrl(rawUrl: string): { phone: string; text: string } {
-  const u = new URL(rawUrl);
-  const phone = (u.searchParams.get('phone') || '').replace(/\D/g, '');
-  const text = u.searchParams.get('text') || '';
-  if (!phone) {
-    throw new Error('El servidor no devolvió un número de WhatsApp válido.');
-  }
-  return { phone, text };
-}
-
-async function openWhatsAppWithFallback(rawUrl: string): Promise<void> {
-  const { phone, text } = parseWhatsappSendUrl(rawUrl);
-  const waMe = `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
-  const waScheme = `whatsapp://send?phone=${phone}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
-
-  // Web: tras fetch async los popups suelen bloquearse; whatsapp:// tampoco abre la app.
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') {
-      window.location.assign(waMe);
-      return;
-    }
-    throw new Error('No se pudo abrir WhatsApp en este navegador.');
-  }
-
-  const candidates = [waScheme, waMe, rawUrl];
-  let lastErr: unknown = null;
-  for (const target of candidates) {
-    try {
-      if (target.startsWith('whatsapp://')) {
-        const canOpen = await Linking.canOpenURL(target);
-        if (!canOpen) continue;
-      }
-      await Linking.openURL(target);
-      return;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw (
-    lastErr instanceof Error
-      ? lastErr
-      : new Error('No se pudo abrir WhatsApp. Verificá que esté instalado e intentá de nuevo.')
-  );
-}
+type WhatsappOpenPromptState = {
+  url: string;
+  linked: boolean;
+};
 
 /* ────────────────────────────────────────────────────────────────────────────── */
 
@@ -684,6 +639,7 @@ export default function HomeScreen() {
   const [jarvisLoaded, setJarvisLoaded] = useState(false);
   const [asistenteWhatsappLoading, setAsistenteWhatsappLoading] = useState(false);
   const asistenteWhatsappLock = useRef(false);
+  const [whatsappOpenPrompt, setWhatsappOpenPrompt] = useState<WhatsappOpenPromptState | null>(null);
   const [waBotPromoVisible, setWaBotPromoVisible] = useState(false);
   const [themePickerVisible, setThemePickerVisible] = useState(false);
   /** El promo WA espera a que termine reveal + modal de tema. */
@@ -829,19 +785,20 @@ export default function HomeScreen() {
     return () => clearTimeout(t);
   }, [pendingExpenseFeedback, expenseSheetOpen]);
 
+  const handleWhatsappOpenPromptPress = useCallback(() => {
+    if (!whatsappOpenPrompt) return;
+    openWhatsappFromPrompt(whatsappOpenPrompt.url);
+  }, [whatsappOpenPrompt]);
+
   const handleAsistenteWhatsapp = useCallback(async () => {
     if (asistenteWhatsappLock.current) return;
     asistenteWhatsappLock.current = true;
     setAsistenteWhatsappLoading(true);
+    setWhatsappOpenPrompt(null);
     try {
-      console.log('[Asistente IA] before supabase.auth.getSession()');
+      waLaunchDebug('A-handler-start', { platform: Platform.OS, hasWindow: typeof window !== 'undefined' });
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       const token = session?.access_token;
-      console.log('[Asistente IA] after getSession()', {
-        hasAccessToken: !!token,
-        accessTokenLength: token ? token.length : 0,
-        sessionError: sessionError?.message ?? null,
-      });
       if (!token) {
         Alert.alert(
           'WhatsApp',
@@ -850,7 +807,7 @@ export default function HomeScreen() {
         return;
       }
       const apiUrl = whatsappLinkCodeApiUrl();
-      console.log('[Asistente IA] fetch url', apiUrl);
+      waLaunchDebug('A-fetch-start', { apiHost: (() => { try { return new URL(apiUrl).host; } catch { return null; } })() });
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -860,11 +817,11 @@ export default function HomeScreen() {
         body: JSON.stringify({}),
       });
       const text = await res.text();
-      console.log('[Asistente IA] fetch response', { status: res.status, responseText: text });
+      waLaunchDebug('B-fetch-done', { status: res.status, bodyLen: text.length });
       let data: { linked?: boolean; code?: string; whatsappUrl?: string; error?: string } = {};
       let parseErr: Error | null = null;
       try {
-        data = text ? (JSON.parse(text) as { whatsappUrl?: string; error?: string }) : {};
+        data = text ? (JSON.parse(text) as typeof data) : {};
       } catch (e) {
         parseErr = e instanceof Error ? e : new Error(String(e));
         data = {};
@@ -882,17 +839,34 @@ export default function HomeScreen() {
         Alert.alert('WhatsApp', `Respuesta inesperada del servidor.\n\n${text.slice(0, 400)}`);
         return;
       }
+      const launchMeta = whatsappLaunchMeta(url);
+      waLaunchDebug('C-json-ok', {
+        linked: data.linked === true,
+        hasWhatsappUrl: true,
+        phoneDigits: launchMeta.phoneDigits,
+        hasVincularText: launchMeta.hasVincularText,
+      });
       if (data.linked === true) {
         void trackEvent('whatsapp_linked', { source: 'asistente_whatsapp' });
-        console.log('[Asistente IA] linked user -> open direct WhatsApp');
-      } else if (data.linked === false) {
-        console.log('[Asistente IA] unlinked user -> open WhatsApp with code');
       }
-      console.log('[Asistente IA] openURL with fallback', { whatsappUrl: url });
-      await openWhatsAppWithFallback(url);
+      try {
+        const { normalizedUrl, showWebFallback } = await launchWhatsappFromServerUrl(url);
+        if (showWebFallback) {
+          setWhatsappOpenPrompt({ url: normalizedUrl, linked: data.linked === true });
+        }
+      } catch (launchErr) {
+        let normalizedUrl = url;
+        try {
+          normalizedUrl = normalizeWhatsappLaunchUrl(url);
+        } catch {
+          /* keep raw url */
+        }
+        setWhatsappOpenPrompt({ url: normalizedUrl, linked: data.linked === true });
+        const msg = launchErr instanceof Error ? launchErr.message : String(launchErr);
+        Alert.alert('WhatsApp', `${msg}\n\nTocá "Abrir WhatsApp" para continuar.`);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error('[Asistente IA] catch', e);
       Alert.alert('WhatsApp', msg || 'Intentá de nuevo en un rato.');
     } finally {
       asistenteWhatsappLock.current = false;
@@ -2225,6 +2199,59 @@ export default function HomeScreen() {
           onConnect={handleWaPromoConnect}
           onDismiss={() => setWaBotPromoVisible(false)}
         />
+        <Modal
+          transparent
+          animationType="fade"
+          visible={whatsappOpenPrompt != null}
+          onRequestClose={() => setWhatsappOpenPrompt(null)}>
+          <Pressable
+            onPress={() => setWhatsappOpenPrompt(null)}
+            style={{
+              flex: 1,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}>
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 340,
+                backgroundColor: isDark ? '#0F1029' : T.card,
+                borderRadius: 20,
+                padding: 22,
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(0,212,255,0.35)' : T.glassBorder,
+                gap: 14,
+              }}>
+              <Text style={{ fontFamily: Font.jakarta700, fontSize: 18, color: T.textPrimary, textAlign: 'center' }}>
+                {whatsappOpenPrompt?.linked ? 'Abrí WhatsApp' : 'Vincular por WhatsApp'}
+              </Text>
+              <Text style={{ fontFamily: Font.manrope400, fontSize: 13, color: T.textSecondary, textAlign: 'center', lineHeight: 20 }}>
+                {whatsappOpenPrompt?.linked
+                  ? 'Tu cuenta ya está vinculada. Tocá el botón para continuar en WhatsApp.'
+                  : 'Tu código está listo. Tocá abajo para abrir WhatsApp con el mensaje VINCULAR prellenado.'}
+              </Text>
+              <Pressable
+                onPress={handleWhatsappOpenPromptPress}
+                style={{ borderRadius: 14, overflow: 'hidden' }}>
+                <GradientView
+                  colors={['#25D366', '#128C7E']}
+                  style={{ height: 48, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontFamily: Font.jakarta700, color: '#FFFFFF', fontSize: 15 }}>
+                    Abrir WhatsApp
+                  </Text>
+                </GradientView>
+              </Pressable>
+              <Pressable onPress={() => setWhatsappOpenPrompt(null)} hitSlop={8}>
+                <Text style={{ fontFamily: Font.manrope500, fontSize: 13, color: T.textSecondary, textAlign: 'center' }}>
+                  Cancelar
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
           </>
         )}
       </View>
