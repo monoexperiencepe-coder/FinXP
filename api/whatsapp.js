@@ -724,7 +724,7 @@ async function processIncomingTextMessage(waFrom, textBody, messageId) {
   return { financialCommitted: saveBatch.anyFinancialCommit };
 }
 
-module.exports = async function handler(req, res) {
+async function whatsappWebhookHandler(req, res) {
   if (req.method === 'GET') {
     const mode = getQueryParam(req.query, 'hub.mode');
     const verifyToken = getQueryParam(req.query, 'hub.verify_token');
@@ -748,11 +748,23 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'POST') {
     let rawBody;
-    let bodyMeta = { source: 'unknown', preParsedObject: false };
+    let bodyMeta = {
+      source: 'unknown',
+      preParsedObject: false,
+      reqBodyType: 'unknown',
+      representations: [],
+      sameStreamAndSerialized: null,
+    };
     try {
       const read = await readRawBodyWithMeta(req);
       rawBody = read.raw;
-      bodyMeta = { source: read.source, preParsedObject: read.preParsedObject };
+      bodyMeta = {
+        source: read.source,
+        preParsedObject: read.preParsedObject,
+        reqBodyType: read.reqBodyType,
+        representations: read.representations,
+        sameStreamAndSerialized: read.sameStreamAndSerialized,
+      };
     } catch (readErr) {
       console.error('[whatsapp] raw body read error', readErr);
       return res.status(400).json({ error: 'Invalid body' });
@@ -852,11 +864,14 @@ module.exports = async function handler(req, res) {
   }
 
   return res.status(405).json({ error: 'Method not allowed' });
-};
+}
 
-/** Vercel: desactiva bodyParser para conservar raw body (firma Meta). */
-module.exports.config = {
+/** Vercel Node serverless: desactiva bodyParser para conservar raw body (firma Meta). */
+whatsappWebhookHandler.config = {
   api: {
     bodyParser: false,
   },
 };
+
+module.exports = whatsappWebhookHandler;
+module.exports.config = whatsappWebhookHandler.config;
