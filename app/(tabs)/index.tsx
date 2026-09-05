@@ -45,45 +45,61 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useFinanceStore } from '@/store/useFinanceStore';
 import type { MonedaCode } from '@/types';
 
+/** Producción Vercel (fin-xp). Fallback si el bundle native no incluye EXPO_PUBLIC_SITE_URL. */
+const WHATSAPP_API_SITE_FALLBACK = 'https://fin-xp-sigma.vercel.app';
+
 function whatsappLinkCodeApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
     return `${window.location.origin}/api/whatsapp-link-code`;
   }
-  const base = process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/$/, '');
-  if (base) return `${base}/api/whatsapp-link-code`;
-  return '/api/whatsapp-link-code';
+  const base =
+    process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/$/, '') || WHATSAPP_API_SITE_FALLBACK;
+  return `${base}/api/whatsapp-link-code`;
 }
 
-function buildWhatsappTargetsFromApiUrl(rawUrl: string): string[] {
-  const fallback = [rawUrl];
-  try {
-    const u = new URL(rawUrl);
-    const phone = (u.searchParams.get('phone') || '').replace(/\D/g, '');
-    const text = u.searchParams.get('text') || '';
-    if (!phone) return fallback;
-
-    const waScheme = `whatsapp://send?phone=${phone}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
-    const waMe = `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
-
-    // Orden pensado para iOS/Android: app nativa -> wa.me -> api.whatsapp.com
-    return [waScheme, waMe, rawUrl];
-  } catch {
-    return fallback;
+function parseWhatsappSendUrl(rawUrl: string): { phone: string; text: string } {
+  const u = new URL(rawUrl);
+  const phone = (u.searchParams.get('phone') || '').replace(/\D/g, '');
+  const text = u.searchParams.get('text') || '';
+  if (!phone) {
+    throw new Error('El servidor no devolvió un número de WhatsApp válido.');
   }
+  return { phone, text };
 }
 
 async function openWhatsAppWithFallback(rawUrl: string): Promise<void> {
-  const targets = buildWhatsappTargetsFromApiUrl(rawUrl);
+  const { phone, text } = parseWhatsappSendUrl(rawUrl);
+  const waMe = `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+  const waScheme = `whatsapp://send?phone=${phone}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+
+  // Web: tras fetch async los popups suelen bloquearse; whatsapp:// tampoco abre la app.
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      window.location.assign(waMe);
+      return;
+    }
+    throw new Error('No se pudo abrir WhatsApp en este navegador.');
+  }
+
+  const candidates = [waScheme, waMe, rawUrl];
   let lastErr: unknown = null;
-  for (const t of targets) {
+  for (const target of candidates) {
     try {
-      await Linking.openURL(t);
+      if (target.startsWith('whatsapp://')) {
+        const canOpen = await Linking.canOpenURL(target);
+        if (!canOpen) continue;
+      }
+      await Linking.openURL(target);
       return;
     } catch (e) {
       lastErr = e;
     }
   }
-  throw (lastErr instanceof Error ? lastErr : new Error('No se pudo abrir WhatsApp'));
+  throw (
+    lastErr instanceof Error
+      ? lastErr
+      : new Error('No se pudo abrir WhatsApp. Verificá que esté instalado e intentá de nuevo.')
+  );
 }
 
 /* ────────────────────────────────────────────────────────────────────────────── */

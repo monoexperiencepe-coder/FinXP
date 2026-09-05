@@ -14,7 +14,10 @@
       "backgroundColor": "#FAF8FF"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["whatsapp"]
+      }
     },
     "android": {
       "adaptiveIcon": {
