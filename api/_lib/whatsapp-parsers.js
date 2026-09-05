@@ -37,6 +37,28 @@ function extractFirstIncomingMessage(body) {
   return msg || null;
 }
 
+/**
+ * Clasifica eventos webhook sin extraer PII (statuses, templates, etc.).
+ * @param {unknown} body
+ * @returns {{ eventKind: string, field: string|null, hasMessages: boolean, hasStatuses: boolean, statusCount: number }}
+ */
+function describeWebhookEventKind(body) {
+  const entry = Array.isArray(body?.entry) ? body.entry[0] : null;
+  const changes = entry && Array.isArray(entry.changes) ? entry.changes[0] : null;
+  const value = changes?.value;
+  const field = typeof changes?.field === 'string' ? changes.field : null;
+  const hasMessages = !!(value?.messages && value.messages.length > 0);
+  const hasStatuses = !!(value?.statuses && value.statuses.length > 0);
+  const statusCount = hasStatuses ? value.statuses.length : 0;
+
+  let eventKind = 'unknown';
+  if (hasMessages) eventKind = 'message';
+  else if (hasStatuses) eventKind = 'status';
+  else if (field) eventKind = field;
+
+  return { eventKind, field, hasMessages, hasStatuses, statusCount };
+}
+
 function normalizeIntentText(text) {
   return String(text || '')
     .toLowerCase()
@@ -309,6 +331,7 @@ module.exports = {
   getQueryParam,
   parseJsonBody,
   extractFirstIncomingMessage,
+  describeWebhookEventKind,
   normalizeIntentText,
   detectCategoryInfo,
   isFinanceRelated,

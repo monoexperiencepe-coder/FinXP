@@ -8,7 +8,7 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
-const { readRawBody, verifyMetaSignature } = require('./_lib/meta-signature');
+const { readRawBodyWithMeta, verifyMetaSignature, diagnoseMetaSignature } = require('./_lib/meta-signature');
 const {
   claimWebhookEvent,
   markWebhookProcessed,
@@ -26,6 +26,7 @@ const { dayBoundsLima, currentYearMonthLima, resolveExpenseCategory } = require(
 const {
   getQueryParam,
   extractFirstIncomingMessage,
+  describeWebhookEventKind,
   parseVincularCode,
   detectCategoryInfo,
   detectNonExpenseIntent,
@@ -40,22 +41,32 @@ const {
 
 /**
  * Log estructurado sin PII ni payload completo.
+ * @param {unknown} body
+ * @param {ReturnType<typeof extractFirstIncomingMessage>} msg
  */
 function safeLogWebhookEvent(body, msg) {
-  console.log(
-    '[whatsapp] webhook event',
-    JSON.stringify({
-      object: body?.object,
-      entryLen: Array.isArray(body?.entry) ? body.entry.length : 0,
-      messageId: typeof msg?.id === 'string' ? msg.id : null,
-      waId: msg?.from ? maskWaId(String(msg.from)) : null,
-      type: msg?.type ?? null,
-      textLen:
-        msg?.type === 'text' && msg?.text && typeof msg.text.body === 'string'
-          ? msg.text.body.length
-          : 0,
-    }),
-  );
+  const kind = describeWebhookEventKind(body);
+  const payload = {
+    object: body?.object,
+    entryLen: Array.isArray(body?.entry) ? body.entry.length : 0,
+    eventKind: kind.eventKind,
+    field: kind.field,
+    hasMessages: kind.hasMessages,
+    hasStatuses: kind.hasStatuses,
+    statusCount: kind.statusCount,
+    messageId: typeof msg?.id === 'string' ? msg.id : null,
+    waId: msg?.from ? maskWaId(String(msg.from)) : null,
+    type: msg?.type ?? null,
+    textLen:
+      msg?.type === 'text' && msg?.text && typeof msg.text.body === 'string'
+        ? msg.text.body.length
+        : 0,
+  };
+  if (!msg && kind.hasStatuses && Array.isArray(body?.entry?.[0]?.changes?.[0]?.value?.statuses)) {
+    const st = body.entry[0].changes[0].value.statuses[0];
+    payload.statusType = typeof st?.status === 'string' ? st.status : null;
+  }
+  console.log('[whatsapp] webhook event', JSON.stringify(payload));
 }
 
 const MSG_FALLBACK_GASTO = "Puedo ayudarte a registrar gastos 💸 prueba algo como: 'pollo 15'";
@@ -737,15 +748,23 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'POST') {
     let rawBody;
+    let bodyMeta = { source: 'unknown', preParsedObject: false };
     try {
-      rawBody = await readRawBody(req);
+      const read = await readRawBodyWithMeta(req);
+      rawBody = read.raw;
+      bodyMeta = { source: read.source, preParsedObject: read.preParsedObject };
     } catch (readErr) {
       console.error('[whatsapp] raw body read error', readErr);
       return res.status(400).json({ error: 'Invalid body' });
     }
 
-    const sig = verifyMetaSignature(rawBody, req.headers['x-hub-signature-256']);
+    const signatureHeader = req.headers['x-hub-signature-256'];
+    const sig = verifyMetaSignature(rawBody, signatureHeader);
     if (!sig.ok) {
+      console.warn(
+        '[whatsapp] signature reject',
+        JSON.stringify(diagnoseMetaSignature(rawBody, signatureHeader, bodyMeta)),
+      );
       return res.status(sig.statusCode).json({ error: sig.error });
     }
 
@@ -756,9 +775,9 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid JSON' });
     }
 
+    const msg = extractFirstIncomingMessage(body);
     safeLogWebhookEvent(body, msg);
 
-    const msg = extractFirstIncomingMessage(body);
     if (!msg) {
       return res.status(200).json({ ok: true, ignored: true });
     }
