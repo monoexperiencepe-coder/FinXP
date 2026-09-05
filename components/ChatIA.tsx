@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 
 import { darkTheme, lightTheme } from '@/constants/theme';
+import { resolveApiEndpoint } from '@/lib/siteUrl';
 import { supabase } from '@/lib/supabase';
 import { useFinanceStore } from '@/store/useFinanceStore';
 
@@ -31,12 +32,12 @@ const SUGERENCIAS = [
 ];
 
 function chatApiUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}/api/chat`;
-  }
-  const base = process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/$/, '');
-  if (base) return `${base}/api/chat`;
-  return '/api/chat';
+  const webOrigin =
+    Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : null;
+  return resolveApiEndpoint('/api/chat', {
+    platformOs: Platform.OS,
+    webOrigin,
+  });
 }
 
 export default function ChatIA() {

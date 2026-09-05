@@ -1082,6 +1082,14 @@ export default function OnboardingScreen() {
                     <Text style={S.wCtaText}>Empezar ahora  →</Text>
                   </LinearGradient>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => router.replace('/(auth)/login' as any)}
+                  activeOpacity={0.75}
+                  style={S.wExistingAccountTouchable}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ya tengo cuenta">
+                  <Text style={S.wExistingAccountText}>Ya tengo cuenta</Text>
+                </TouchableOpacity>
                 <Text style={S.wCtaMeta}>Gratis · Sin tarjeta de crédito</Text>
               </Animated.View>
 
@@ -2382,6 +2390,17 @@ const S = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(196,181,253,0.45)',
     fontFamily: 'Manrope_400Regular',
+  },
+  wExistingAccountTouchable: {
+    marginTop: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  wExistingAccountText: {
+    fontSize: 14,
+    color: 'rgba(221,214,254,0.88)',
+    fontFamily: 'Manrope_600SemiBold',
+    textDecorationLine: 'underline',
   },
 
   // ── WhatsApp demo step ─────────────────────────────────────────────────────

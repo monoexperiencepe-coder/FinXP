@@ -1,5 +1,6 @@
 import { Linking, Platform } from 'react-native';
 
+import { resolveApiEndpoint } from '@/lib/siteUrl';
 import {
   detectMobileWebFromUserAgent,
   extractVincularCodeFromLaunchUrl as extractVincularCodeFromLaunchUrlPure,
@@ -8,8 +9,8 @@ import {
   whatsappWebLinkTargetFromContext,
 } from './whatsappLaunchUrl';
 
-/** Producción Vercel (fin-xp). Fallback si el bundle native no incluye EXPO_PUBLIC_SITE_URL. */
-export const WHATSAPP_API_SITE_FALLBACK = 'https://fin-xp-sigma.vercel.app';
+/** @deprecated Usar CANONICAL_PRODUCTION_ORIGIN desde @/lib/siteUrl */
+export { CANONICAL_PRODUCTION_ORIGIN as WHATSAPP_API_SITE_FALLBACK } from '@/lib/siteUrl';
 
 export type WhatsappLaunchContext = {
   platformOs: string;
@@ -36,12 +37,12 @@ export function getWhatsappLaunchContext(): WhatsappLaunchContext {
 }
 
 export function whatsappLinkCodeApiUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}/api/whatsapp-link-code`;
-  }
-  const base =
-    process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/$/, '') || WHATSAPP_API_SITE_FALLBACK;
-  return `${base}/api/whatsapp-link-code`;
+  const webOrigin =
+    Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : null;
+  return resolveApiEndpoint('/api/whatsapp-link-code', {
+    platformOs: Platform.OS,
+    webOrigin,
+  });
 }
 
 /** Logs solo en development — distinguir A–F del flujo de launch. */

@@ -15,6 +15,7 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
@@ -29,6 +30,7 @@ import {
   writeOnboardingCompletedLocal,
 } from '@/lib/preferences';
 import { resolveBootstrapRouteTarget, resolveOnboardingCompletedForRouting } from '@/lib/bootstrapRouting';
+import { CANONICAL_PRODUCTION_ORIGIN, shouldRedirectToCanonical } from '@/lib/siteUrl';
 import { supabase } from '@/lib/supabase';
 import { useAppShellStore } from '@/store/useAppShellStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -85,6 +87,14 @@ export default function RootLayout() {
     Manrope_600SemiBold,
     ...FontAwesome.font,
   });
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const { origin, pathname, search, hash } = window.location;
+    if (!shouldRedirectToCanonical(origin)) return;
+    const target = `${CANONICAL_PRODUCTION_ORIGIN.replace(/\/$/, '')}${pathname}${search}${hash}`;
+    window.location.replace(target);
+  }, []);
 
   useEffect(() => {
     if (error) throw error;

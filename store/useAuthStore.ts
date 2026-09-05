@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 
-import { writeLastLoginNow } from '@/lib/preferences';
+import { writeLastLoginNow, writeOnboardingCompletedLocal } from '@/lib/preferences';
 import { supabase } from '@/lib/supabase';
 
 interface AuthState {
@@ -35,8 +35,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     } = await supabase.auth.getSession();
     set({ session, user: session?.user ?? null, initialized: true });
 
-    supabase.auth.onAuthStateChange((_event, nextSession) => {
+    supabase.auth.onAuthStateChange(async (event, nextSession) => {
       set({ session: nextSession, user: nextSession?.user ?? null });
+      if (nextSession?.user && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
+        await writeOnboardingCompletedLocal(true);
+        if (event === 'SIGNED_IN') {
+          await writeLastLoginNow();
+        }
+      }
     });
   },
 
@@ -46,6 +52,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       await writeLastLoginNow();
+      await writeOnboardingCompletedLocal(true);
     } finally {
       set({ loading: false });
     }
